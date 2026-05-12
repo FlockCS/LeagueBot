@@ -1,6 +1,6 @@
 from unittest.mock import patch
 from freezegun import freeze_time
-from src.main import get_yesterday_timestamps, build_leaderboard
+from src.leaderboard import get_yesterday_timestamps, build_leaderboard
 
 
 class TestGetYesterdayTimestamps:
@@ -13,24 +13,24 @@ class TestGetYesterdayTimestamps:
 
 
 class TestBuildLeaderboard:
-    @patch("src.main.calculate_hours")
-    @patch("src.main.get_puuid")
+    @patch("src.leaderboard.calculate_hours")
+    @patch("src.leaderboard.get_puuid")
     def test_sorts_by_hours_descending(self, mock_puuid, mock_hours):
         mock_puuid.return_value = "fake-puuid"
         mock_hours.side_effect = [1.0, 3.0, 2.0]
 
-        with patch("src.main.PLAYERS", [("A", "1"), ("B", "2"), ("C", "3")]):
+        with patch("src.leaderboard.PLAYERS", [("A", "1"), ("B", "2"), ("C", "3")]):
             results = build_leaderboard()
 
         assert results[0] == ("B", 3.0)
         assert results[1] == ("C", 2.0)
         assert results[2] == ("A", 1.0)
 
-    @patch("src.main.get_puuid")
+    @patch("src.leaderboard.get_puuid")
     def test_skips_failed_puuid(self, mock_puuid):
         mock_puuid.return_value = None
 
-        with patch("src.main.PLAYERS", [("A", "1")]):
+        with patch("src.leaderboard.PLAYERS", [("A", "1")]):
             results = build_leaderboard()
 
         assert results == []

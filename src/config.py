@@ -1,14 +1,5 @@
-import os
-
-API_KEY = os.environ.get("RIOT_API_KEY", "")
-WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
-
 REGION = "americas"
 ACCOUNT_BASE_URL = "https://americas.api.riotgames.com"
-
-HEADERS = {
-    "X-Riot-Token": API_KEY
-}
 
 PLAYERS = [
     ("Manny", "MANG"),

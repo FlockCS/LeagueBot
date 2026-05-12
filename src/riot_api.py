@@ -1,6 +1,11 @@
 import time
+import boto3
 import requests
-from src.config import REGION, ACCOUNT_BASE_URL, HEADERS
+from src.config import REGION, ACCOUNT_BASE_URL
+
+_ssm = boto3.client("ssm", region_name="us-east-1")
+_api_key = _ssm.get_parameter(Name="/leaguebot/riot-api-key", WithDecryption=True)["Parameter"]["Value"]
+HEADERS = {"X-Riot-Token": _api_key}
 
 
 def get_puuid(game_name, tag_line):
