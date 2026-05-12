@@ -1,5 +1,6 @@
 REGION = "americas"
 ACCOUNT_BASE_URL = "https://americas.api.riotgames.com"
+STEAM_API_URL = "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/"
 
 STEAM_PLAYERS = [
     {"discord_id": "225032479734628353", "steam_id": "76561198158759064"}, #Donkey

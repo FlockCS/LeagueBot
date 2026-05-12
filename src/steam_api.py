@@ -1,10 +1,9 @@
 import boto3
 import requests
+from src.config import STEAM_API_URL
 
 _ssm = boto3.client("ssm", region_name="us-east-1")
 _api_key = _ssm.get_parameter(Name="/leaguebot/steam-api-key", WithDecryption=True)["Parameter"]["Value"]
-
-STEAM_API_URL = "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/"
 
 
 def get_player_status(steam_id):
