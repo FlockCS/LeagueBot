@@ -6,7 +6,7 @@ from aws_cdk import (
     aws_lambda as _lambda,
     aws_events as events,
     aws_events_targets as targets,
-    aws_ssm as ssm,
+    aws_iam as iam,
 )
 from constructs import Construct
 
@@ -17,19 +17,10 @@ class LeaguebotStack(Stack):
     def __init__(self, scope: Construct, id: str, **kwargs):
         super().__init__(scope, id, **kwargs)
 
-        riot_api_key = ssm.StringParameter.from_secure_string_parameter_attributes(
-            self, "RiotApiKey",
-            parameter_name="/leaguebot/riot-api-key",
-        )
-        webhook_url = ssm.StringParameter.from_secure_string_parameter_attributes(
-            self, "WebhookUrl",
-            parameter_name="/leaguebot/webhook-url",
-        )
-
         fn = _lambda.Function(
             self, "LeaguebotFunction",
             runtime=_lambda.Runtime.PYTHON_3_12,
-            handler="handler.handler",
+            handler="src.handler.handler",
             code=_lambda.Code.from_asset(
                 PROJECT_ROOT,
                 bundling=BundlingOptions(
@@ -37,20 +28,20 @@ class LeaguebotStack(Stack):
                     command=[
                         "bash", "-c",
                         "pip install -r requirements.txt -t /asset-output"
-                        " && cp -au src handler.py /asset-output/",
+                        " && cp -au src /asset-output/",
                     ],
                 ),
             ),
             timeout=Duration.minutes(5),
             memory_size=256,
-            environment={
-                "RIOT_API_KEY": riot_api_key.string_value,
-                "DISCORD_WEBHOOK_URL": webhook_url.string_value,
-            },
         )
 
-        riot_api_key.grant_read(fn)
-        webhook_url.grant_read(fn)
+        fn.add_to_role_policy(iam.PolicyStatement(
+            actions=["ssm:GetParameter"],
+            resources=[
+                f"arn:aws:ssm:{self.region}:{self.account}:parameter/leaguebot/*",
+            ],
+        ))
 
         rule = events.Rule(
             self, "DailySchedule",

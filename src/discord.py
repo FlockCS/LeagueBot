@@ -1,7 +1,10 @@
+import boto3
 import requests
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from src.config import WEBHOOK_URL
+
+_ssm = boto3.client("ssm", region_name="us-east-1")
+_webhook_url = _ssm.get_parameter(Name="/leaguebot/discord-webhook-url", WithDecryption=True)["Parameter"]["Value"]
 
 
 def send_to_discord(results):
@@ -18,5 +21,5 @@ def send_to_discord(results):
     for i, (name, hours) in enumerate(results[:3]):
         message += f"{medals[i]} {name} — {hours:.1f} hrs\n"
 
-    res = requests.post(WEBHOOK_URL, json={"content": message})
+    res = requests.post(_webhook_url, json={"content": message})
     res.raise_for_status()
