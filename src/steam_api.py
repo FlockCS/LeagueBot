@@ -54,4 +54,5 @@ def get_owned_games(steam_id):
         return None
 
     # Filter out games with 0 playtime to keep DynamoDB items small.
-    return {g["name"]: g.get("playtime_forever", 0) for g in games if g.get("playtime_forever", 0) > 0}
+    # `or` short-circuits: only evaluates the appid fallback if name is absent/empty.
+    return {(g.get("name") or f"appid_{g.get('appid', 'unknown')}"): g.get("playtime_forever", 0) for g in games if g.get("playtime_forever", 0) > 0}

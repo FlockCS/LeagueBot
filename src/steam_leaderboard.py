@@ -71,10 +71,6 @@ def build_steam_leaderboard():
             continue
         name = status["name"]
 
-        # Small sleep between the two API calls per player — Steam's free tier
-        # is generous but bursting 20+ requests at once isn't a great look.
-        time.sleep(0.5)
-
         # Step 2: get per-game lifetime totals.
         games = get_owned_games(steam_id)
         if games is None:
@@ -103,7 +99,8 @@ def build_steam_leaderboard():
             if weekly_total > 0:
                 weekly_results.append((name, weekly_total / 60))
 
-        time.sleep(0.5)
+        # One sleep per player keeps us polite to Steam's API without being wasteful.
+        time.sleep(1)
 
     daily_results.sort(key=lambda x: x[1], reverse=True)
     weekly_results.sort(key=lambda x: x[1], reverse=True)
