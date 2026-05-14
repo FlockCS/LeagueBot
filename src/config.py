@@ -1,6 +1,11 @@
+# Riot API regional routing — "americas" covers NA, LAN, LAS, BR accounts.
 REGION = "americas"
 ACCOUNT_BASE_URL = "https://americas.api.riotgames.com"
+
+# Steam endpoints. GetPlayerSummaries returns persona name + currently-playing game.
+# GetOwnedGames returns every game a player owns and their lifetime playtime in minutes.
 STEAM_API_URL = "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/"
+STEAM_OWNED_GAMES_URL = "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/"
 
 STEAM_PLAYERS = [
     {"discord_id": "225032479734628353", "steam_id": "76561198158759064"}, #Donkey
