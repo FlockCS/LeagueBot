@@ -16,7 +16,7 @@ def handler(event, context):
     # Steam side: always runs because it needs to save today's snapshot regardless
     # of whether it has yesterday's. send_steam_to_discord handles the empty case
     # itself (no message sent on first run / no usable data).
-    daily, weekly, today, yesterday = build_steam_leaderboard()
-    send_steam_to_discord(daily, weekly, today, yesterday)
+    steam_leaderboard = build_steam_leaderboard()
+    send_steam_to_discord(steam_leaderboard)
 
     return {"statusCode": 200, "body": "Done"}

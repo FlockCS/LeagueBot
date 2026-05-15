@@ -67,19 +67,21 @@ class TestBuildSteamLeaderboard:
         mock_load.side_effect = fake_load
 
         with patch("src.steam_leaderboard.STEAM_PLAYERS", [{"discord_id": "1", "steam_id": "100"}]):
-            daily, weekly, today, yesterday = build_steam_leaderboard()
+            result = build_steam_leaderboard()
 
         # Daily: CS2 +200 min, Dota +20 min = 220 min = 3.667 hrs
-        assert len(daily) == 1
-        name, hours, top_games = daily[0]
+        assert len(result.daily_results) == 1
+        name, hours, top_games = result.daily_results[0]
         assert name == "Donkey"
         assert round(hours, 2) == round(220 / 60, 2)
         assert top_games[0][0] == "Counter-Strike 2"
 
         # Weekly: total today (1900) - total from Monday (1000) = 900 min = 15 hrs
-        assert len(weekly) == 1
-        assert weekly[0][0] == "Donkey"
-        assert weekly[0][1] == 15.0
+        assert len(result.weekly_results) == 1
+        assert result.weekly_results[0][0] == "Donkey"
+        assert result.weekly_results[0][1] == 15.0
+
+        assert result.today == date(2026, 5, 13)
 
         # Should not have triggered cleanup (today is Wednesday, weekday=2)
         mock_delete.assert_not_called()
@@ -100,11 +102,11 @@ class TestBuildSteamLeaderboard:
         mock_load.return_value = None  # No snapshots in DB yet.
 
         with patch("src.steam_leaderboard.STEAM_PLAYERS", [{"discord_id": "1", "steam_id": "100"}]):
-            daily, weekly, today, yesterday = build_steam_leaderboard()
+            result = build_steam_leaderboard()
 
         # Both lists empty — only the baseline snapshot was saved.
-        assert daily == []
-        assert weekly == []
+        assert result.daily_results == []
+        assert result.weekly_results == []
         mock_save.assert_called_once()  # Still saves today's snapshot as the baseline.
 
     @freeze_time("2026-05-11 14:00:00")  # A Monday
@@ -150,7 +152,7 @@ class TestBuildSteamLeaderboard:
 
         players = [{"discord_id": "1", "steam_id": "111"}, {"discord_id": "2", "steam_id": "222"}]
         with patch("src.steam_leaderboard.STEAM_PLAYERS", players):
-            daily, weekly, _, _ = build_steam_leaderboard()
+            result = build_steam_leaderboard()
 
-        assert daily[0][0] == "Bob"
-        assert daily[1][0] == "Alice"
+        assert result.daily_results[0][0] == "Bob"
+        assert result.daily_results[1][0] == "Alice"

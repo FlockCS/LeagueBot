@@ -13,23 +13,27 @@
 # store one snapshot per player per day and subtract — that gives us per-period hours.
 
 import time
-from datetime import datetime, timedelta
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from src.config import STEAM_PLAYERS
 from src.steam_api import get_player_status, get_owned_games
 from src.steam_snapshot import save_snapshot, load_snapshot, delete_snapshots_before
 
 
-def _date_str(d):
-    # DynamoDB sort keys are strings — using ISO format means lexicographic order
-    # matches chronological order, which lets us use "date < cutoff" queries.
-    return d.strftime("%Y-%m-%d")
+@dataclass
+class SteamLeaderboard:
+    # daily_results: [(name, daily_hours, [(game, game_hours), ...]), ...]
+    # weekly_results: [(name, weekly_hours), ...]
+    today: date
+    daily_results: list = field(default_factory=list)
+    weekly_results: list = field(default_factory=list)
 
 
-def _week_start(today):
-    # weekday(): Monday=0, Sunday=6. Subtracting that many days lands us on
-    # the most recent Monday (or today itself if today is Monday).
-    return today - timedelta(days=today.weekday())
+def _date_str(d): return d.strftime("%Y-%m-%d")
+
+
+def _week_start(today): return today - timedelta(days=today.weekday())
 
 
 def _game_deltas(today_games, yesterday_games):
@@ -59,8 +63,8 @@ def build_steam_leaderboard():
     yesterday_key = _date_str(yesterday)
     week_start_key = _date_str(week_start)
 
-    daily_results = []   # list of (name, daily_hours, [(game, game_hours), ...])
-    weekly_results = []  # list of (name, weekly_hours)
+    daily_results = []
+    weekly_results = []
 
     for player in STEAM_PLAYERS:
         steam_id = player["steam_id"]
@@ -111,6 +115,4 @@ def build_steam_leaderboard():
         for player in STEAM_PLAYERS:
             delete_snapshots_before(today_key, player["steam_id"])
 
-    # `today` and `yesterday` are returned so discord.py can format the date range
-    # without recomputing it (and possibly drifting if the run crosses midnight).
-    return daily_results, weekly_results, today, yesterday
+    return SteamLeaderboard(today=today, daily_results=daily_results, weekly_results=weekly_results)

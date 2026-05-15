@@ -3,7 +3,6 @@ from aws_cdk import (
     Stack,
     Duration,
     BundlingOptions,
-    RemovalPolicy,
     aws_lambda as _lambda,
     aws_events as events,
     aws_events_targets as targets,
@@ -23,8 +22,6 @@ class LeaguebotStack(Stack):
         # PAY_PER_REQUEST means we only pay for actual reads/writes (no provisioned
         # throughput to manage). With ~10 players * 2 reads + 1 write per day,
         # we use ~30 RCUs and ~10 WCUs daily — well inside the 25 GB / 25 R+WCU free tier.
-        # RETAIN removal_policy means `cdk destroy` won't delete the table — we
-        # don't want a misclick to wipe a month of snapshot history.
         steam_table = dynamodb.Table(
             self, "SteamSnapshotsTable",
             table_name="leaguebot-steam-snapshots",
@@ -37,7 +34,6 @@ class LeaguebotStack(Stack):
                 type=dynamodb.AttributeType.STRING,
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
-            removal_policy=RemovalPolicy.RETAIN,
         )
 
         fn = _lambda.Function(
@@ -57,9 +53,6 @@ class LeaguebotStack(Stack):
             ),
             timeout=Duration.minutes(5),
             memory_size=256,
-            # steam_snapshot.py reads this env var at import time to know which table
-            # to talk to. Using table.table_name (vs a hardcoded string) means CDK
-            # will wire up the dependency automatically.
             environment={
                 "STEAM_TABLE_NAME": steam_table.table_name,
             },
@@ -72,8 +65,6 @@ class LeaguebotStack(Stack):
             ],
         ))
 
-        # Grants the Lambda's execution role permission to call GetItem, PutItem,
-        # Query, etc. on this specific table only — least-privilege principle.
         steam_table.grant_read_write_data(fn)
 
         rule = events.Rule(
