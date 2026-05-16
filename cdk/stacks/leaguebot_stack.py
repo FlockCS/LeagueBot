@@ -7,6 +7,7 @@ from aws_cdk import (
     aws_events as events,
     aws_events_targets as targets,
     aws_iam as iam,
+    aws_dynamodb as dynamodb,
 )
 from constructs import Construct
 
@@ -16,6 +17,24 @@ PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent)
 class LeaguebotStack(Stack):
     def __init__(self, scope: Construct, id: str, **kwargs):
         super().__init__(scope, id, **kwargs)
+
+        # DynamoDB table for Steam playtime snapshots — one item per (player, day).
+        # PAY_PER_REQUEST means we only pay for actual reads/writes (no provisioned
+        # throughput to manage). With ~10 players * 2 reads + 1 write per day,
+        # we use ~30 RCUs and ~10 WCUs daily — well inside the 25 GB / 25 R+WCU free tier.
+        steam_table = dynamodb.Table(
+            self, "SteamSnapshotsTable",
+            table_name="leaguebot-steam-snapshots",
+            partition_key=dynamodb.Attribute(
+                name="steam_id",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            sort_key=dynamodb.Attribute(
+                name="date",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+        )
 
         fn = _lambda.Function(
             self, "LeaguebotFunction",
@@ -34,6 +53,9 @@ class LeaguebotStack(Stack):
             ),
             timeout=Duration.minutes(5),
             memory_size=256,
+            environment={
+                "STEAM_TABLE_NAME": steam_table.table_name,
+            },
         )
 
         fn.add_to_role_policy(iam.PolicyStatement(
@@ -42,6 +64,8 @@ class LeaguebotStack(Stack):
                 f"arn:aws:ssm:{self.region}:{self.account}:parameter/leaguebot/*",
             ],
         ))
+
+        steam_table.grant_read_write_data(fn)
 
         rule = events.Rule(
             self, "DailySchedule",
