@@ -1,6 +1,9 @@
+import logging
 import boto3
 import requests
 from src.config import STEAM_API_URL, STEAM_OWNED_GAMES_URL
+
+logger = logging.getLogger(__name__)
 
 # Pull the Steam API key from AWS Parameter Store at import time so we don't have
 # to hit SSM on every request. WithDecryption=True is required for SecureString params.
@@ -17,14 +20,16 @@ def get_player_status(steam_id):
         "steamids": steam_id,
     })
     if res.status_code != 200:
-        print(f"Failed to fetch status for {steam_id}: {res.status_code}")
+        logger.error(f"Failed to fetch status for {steam_id}: HTTP {res.status_code}")
         return None
 
     players = res.json().get("response", {}).get("players", [])
     if not players:
+        logger.warning(f"No player data found for {steam_id}")
         return None
 
     player = players[0]
+    logger.debug(f"Fetched status for {player['personaname']} ({steam_id})")
     return {
         "name": player["personaname"],
         "game": player.get("gameextrainfo"),
@@ -43,14 +48,14 @@ def get_owned_games(steam_id):
         "format": "json",
     })
     if res.status_code != 200:
-        print(f"Failed to fetch owned games for {steam_id}: {res.status_code}")
+        logger.error(f"Failed to fetch owned games for {steam_id}: HTTP {res.status_code}")
         return None
 
     # If the profile is private, the API returns {} instead of {games: [...]} —
     # this is the one case we can't recover from without the user changing their privacy settings.
     games = res.json().get("response", {}).get("games")
     if games is None:
-        print(f"No games visible for {steam_id} (profile may be private)")
+        logger.warning(f"No games visible for {steam_id} (profile may be private)")
         return None
 
     # Filter out games with 0 playtime to keep DynamoDB items small.
@@ -63,4 +68,5 @@ def get_owned_games(steam_id):
         # short-circuits so we only build the appid string when name is missing.
         name = g.get("name") or f"appid_{g.get('appid', 'unknown')}"
         result[name] = minutes
+    logger.debug(f"Fetched {len(result)} games for {steam_id}")
     return result

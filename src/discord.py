@@ -1,7 +1,10 @@
+import logging
 import boto3
 import requests
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+
+logger = logging.getLogger(__name__)
 
 _ssm = boto3.client("ssm", region_name="us-east-1")
 _webhook_url = _ssm.get_parameter(Name="/leaguebot/discord-webhook-url", WithDecryption=True)["Parameter"]["Value"]
@@ -33,13 +36,17 @@ def send_steam_to_discord(leaderboard):
 
     if today.weekday() == 6:
         if not leaderboard.weekly_results:
+            logger.info("Sunday with no weekly results — skipping post")
             return
+        logger.info(f"Posting Steam weekly recap ({len(leaderboard.weekly_results)} players)")
         message = "**\U0001f4c5 Steam Weekly Recap:**\n\n"  # 📅
         for i, (name, hours) in enumerate(leaderboard.weekly_results[:3]):
             message += f"{medals[i]} {name} — {hours:.1f} hrs\n"
     else:
         if not leaderboard.daily_results:
+            logger.info(f"{today.strftime('%A')} with no daily results — skipping post")
             return
+        logger.info(f"Posting Steam daily leaderboard ({len(leaderboard.daily_results)} players)")
         yesterday = today - timedelta(days=1)
         fmt = "%b %d"
         # \U0001f3ae is the 🎮 video game emoji.
@@ -53,3 +60,4 @@ def send_steam_to_discord(leaderboard):
 
     res = requests.post(_webhook_url, json={"content": message})
     res.raise_for_status()
+    logger.info("Steam message posted to Discord")

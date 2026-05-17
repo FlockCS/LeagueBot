@@ -12,6 +12,7 @@
 # Why this works: Steam's API only gives LIFETIME totals, not "played today." So we
 # store one snapshot per player per day and subtract — that gives us per-period hours.
 
+import logging
 import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -19,6 +20,8 @@ from zoneinfo import ZoneInfo
 from src.config import STEAM_PLAYERS
 from src.steam_api import get_player_status, get_owned_games
 from src.steam_snapshot import save_snapshot, load_snapshot, delete_snapshots_before
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -63,6 +66,7 @@ def build_steam_leaderboard():
     yesterday_key = _date_str(yesterday)
     week_start_key = _date_str(week_start)
 
+    logger.info(f"Building Steam leaderboard for {today}")
     daily_results = []
     weekly_results = []
 
@@ -72,17 +76,20 @@ def build_steam_leaderboard():
         # Step 1: get the persona name.
         status = get_player_status(steam_id)
         if not status:
+            logger.warning(f"Skipping {steam_id}: failed to fetch player status")
             continue
         name = status["name"]
 
         # Step 2: get per-game lifetime totals.
         games = get_owned_games(steam_id)
         if games is None:
+            logger.warning(f"Skipping {name}: no games visible")
             continue
 
         # Step 3: persist today's snapshot. Always done, even if there's no yesterday
         # to diff against yet — that's how we bootstrap the very first run.
         save_snapshot(today_key, steam_id, name, games)
+        logger.debug(f"Saved snapshot for {name} ({steam_id}): {len(games)} games, {sum(games.values())} min total")
 
         # Step 4: daily delta.
         yesterday_snap = load_snapshot(yesterday_key, steam_id)
@@ -93,6 +100,9 @@ def build_steam_leaderboard():
                 # Top 3 games this player played today, by minutes played.
                 top_games = sorted(deltas.items(), key=lambda x: x[1], reverse=True)[:3]
                 daily_results.append((name, daily_total / 60, [(g, m / 60) for g, m in top_games]))
+                logger.info(f"{name}: {daily_total / 60:.1f} hrs today ({len(deltas)} games)")
+        else:
+            logger.debug(f"No yesterday snapshot for {name} — first run or bootstrapping")
 
         # Step 5: weekly delta. Compare against this Monday's total_minutes.
         # On Mondays, week_snap == today's snapshot we just wrote → delta is 0
@@ -102,6 +112,7 @@ def build_steam_leaderboard():
             weekly_total = sum(games.values()) - int(week_snap.get("total_minutes", 0))
             if weekly_total > 0:
                 weekly_results.append((name, weekly_total / 60))
+                logger.info(f"{name}: {weekly_total / 60:.1f} hrs this week")
 
         # One sleep per player keeps us polite to Steam's API without being wasteful.
         time.sleep(1)
@@ -109,9 +120,12 @@ def build_steam_leaderboard():
     daily_results.sort(key=lambda x: x[1], reverse=True)
     weekly_results.sort(key=lambda x: x[1], reverse=True)
 
+    logger.info(f"Leaderboard complete: {len(daily_results)} daily, {len(weekly_results)} weekly")
+
     # Monday cleanup: after the message is built, drop old snapshots so the table
     # stays small. Today's snapshot is preserved (it's the anchor for the new week).
     if today.weekday() == 0:
+        logger.info("Monday cleanup: deleting snapshots before today")
         for player in STEAM_PLAYERS:
             delete_snapshots_before(today_key, player["steam_id"])
 
