@@ -1,6 +1,12 @@
 # Lambda entry point. AWS EventBridge fires this once per day (see CDK stack).
 # `event` and `context` are passed by AWS — we don't use them but the signature is required.
 
+import logging
+
+# Lambda captures the root logger but defaults to WARNING. Set INFO so all
+# logger.info() calls from steam_api, steam_leaderboard, and discord appear in CloudWatch.
+logging.getLogger().setLevel(logging.INFO)
+
 from src.leaderboard import build_leaderboard
 from src.steam_leaderboard import build_steam_leaderboard
 from src.discord import send_to_discord, send_steam_to_discord
