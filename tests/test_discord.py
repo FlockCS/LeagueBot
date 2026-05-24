@@ -72,7 +72,7 @@ class TestSendSteamToDiscord:
         # Mon-Sat post shouldn't include the weekly section even if it's populated.
         mock_post.return_value = MagicMock(raise_for_status=lambda: None)
         daily = [("Donkey", 5.0, [("CS2", 5.0)])]
-        weekly = [("Donkey", 20.0)]
+        weekly = [("Donkey", 20.0, [("CS2", 20.0)])]
         lb = SteamLeaderboard(today=date(2026, 5, 13), daily_results=daily, weekly_results=weekly)
         send_steam_to_discord(lb)
 
@@ -81,9 +81,12 @@ class TestSendSteamToDiscord:
         assert "20.0 hrs" not in payload
 
     @patch("src.discord.requests.post")
-    def test_sunday_renders_weekly_recap(self, mock_post):
+    def test_sunday_renders_weekly_recap_with_top_games(self, mock_post):
         mock_post.return_value = MagicMock(raise_for_status=lambda: None)
-        weekly = [("Donkey", 20.0), ("Pranav", 10.0)]
+        weekly = [
+            ("Donkey", 20.0, [("Counter-Strike 2", 15.0), ("Dota 2", 5.0)]),
+            ("Pranav", 10.0, [("Apex Legends", 10.0)]),
+        ]
         lb = SteamLeaderboard(today=date(2026, 5, 17), weekly_results=weekly)
         send_steam_to_discord(lb)
 
@@ -91,6 +94,8 @@ class TestSendSteamToDiscord:
         assert "Steam Weekly Recap" in payload
         assert "Donkey" in payload
         assert "20.0 hrs" in payload
+        assert "Counter-Strike 2" in payload
+        assert "Dota 2" in payload
         assert "Pranav" in payload
 
     @patch("src.discord.requests.post")
@@ -98,10 +103,9 @@ class TestSendSteamToDiscord:
         # Sunday post is weekly-only — daily section never appears.
         mock_post.return_value = MagicMock(raise_for_status=lambda: None)
         daily = [("Donkey", 5.0, [("CS2", 5.0)])]
-        weekly = [("Donkey", 20.0)]
+        weekly = [("Donkey", 20.0, [("CS2", 20.0)])]
         lb = SteamLeaderboard(today=date(2026, 5, 17), daily_results=daily, weekly_results=weekly)
         send_steam_to_discord(lb)
 
         payload = mock_post.call_args[1]["json"]["content"]
         assert "Top Steam Players Today" not in payload
-        assert "CS2" not in payload

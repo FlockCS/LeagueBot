@@ -76,10 +76,14 @@ class TestBuildSteamLeaderboard:
         assert round(hours, 2) == round(220 / 60, 2)
         assert top_games[0][0] == "Counter-Strike 2"
 
-        # Weekly: total today (1900) - total from Monday (1000) = 900 min = 15 hrs
+        # Weekly: CS2 +300 min, Dota +600 min vs Monday = 900 min = 15 hrs
+        # Monday snapshot only has CS2:1000, today has CS2:1300 + Dota:600
+        # So week_deltas = {CS2: 300, Dota: 600} → top game is Dota
         assert len(result.weekly_results) == 1
-        assert result.weekly_results[0][0] == "Donkey"
-        assert result.weekly_results[0][1] == 15.0
+        w_name, w_hours, w_top_games = result.weekly_results[0]
+        assert w_name == "Donkey"
+        assert w_hours == 15.0
+        assert w_top_games[0][0] == "Dota 2"
 
         assert result.today == date(2026, 5, 13)
 
