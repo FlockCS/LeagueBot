@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class SteamLeaderboard:
-    # daily_results: [(name, daily_hours, [(game, game_hours), ...]), ...]
-    # weekly_results: [(name, weekly_hours), ...]
+    # daily_results:  [(name, daily_hours,  [(game, game_hours), ...]), ...]
+    # weekly_results: [(name, weekly_hours, [(game, game_hours), ...]), ...]
     today: date
     daily_results: list = field(default_factory=list)
     weekly_results: list = field(default_factory=list)
@@ -104,15 +104,17 @@ def build_steam_leaderboard():
         else:
             logger.debug(f"No yesterday snapshot for {name} — first run or bootstrapping")
 
-        # Step 5: weekly delta. Compare against this Monday's total_minutes.
+        # Step 5: weekly delta. Compare against this Monday's snapshot.
         # On Mondays, week_snap == today's snapshot we just wrote → delta is 0
         # → player won't appear in weekly_results (filtered below).
         week_snap = load_snapshot(week_start_key, steam_id)
         if week_snap:
-            weekly_total = sum(games.values()) - int(week_snap.get("total_minutes", 0))
+            week_deltas = _game_deltas(games, week_snap.get("games", {}))
+            weekly_total = sum(week_deltas.values())
             if weekly_total > 0:
-                weekly_results.append((name, weekly_total / 60))
-                logger.info(f"{name}: {weekly_total / 60:.1f} hrs this week")
+                top_games = sorted(week_deltas.items(), key=lambda x: x[1], reverse=True)[:3]
+                weekly_results.append((name, weekly_total / 60, [(g, m / 60) for g, m in top_games]))
+                logger.info(f"{name}: {weekly_total / 60:.1f} hrs this week ({len(week_deltas)} games)")
 
         # One sleep per player keeps us polite to Steam's API without being wasteful.
         time.sleep(1)

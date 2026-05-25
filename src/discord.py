@@ -38,10 +38,15 @@ def send_steam_to_discord(leaderboard):
         if not leaderboard.weekly_results:
             logger.info("Sunday with no weekly results — skipping post")
             return
+        week_start = today - timedelta(days=today.weekday() + 1)  # last Monday
+        fmt = "%b %d"
         logger.info(f"Posting Steam weekly recap ({len(leaderboard.weekly_results)} players)")
-        message = "**\U0001f4c5 Steam Weekly Recap:**\n\n"  # 📅
-        for i, (name, hours) in enumerate(leaderboard.weekly_results[:3]):
+        message = f"**\U0001f4c5 Steam Weekly Recap:**\n_{week_start.strftime(fmt)} → {today.strftime(fmt)}_\n\n"  # 📅
+        for i, (name, hours, top_games) in enumerate(leaderboard.weekly_results[:3]):
             message += f"{medals[i]} {name} — {hours:.1f} hrs\n"
+            for game, game_hours in top_games:
+                message += f"   • {game} — {game_hours:.1f} hrs\n"
+            message += "\n"
     else:
         if not leaderboard.daily_results:
             logger.info(f"{today.strftime('%A')} with no daily results — skipping post")
