@@ -1,28 +1,33 @@
-# Lambda entry point. AWS EventBridge fires this once per day (see CDK stack).
-# `event` and `context` are passed by AWS — we don't use them but the signature is required.
+# Lambda entry point. AWS EventBridge fires this once per day at 9 AM ET (see CDK
+# stack). `event` and `context` are passed by AWS — unused, but the signature is
+# required.
 
 import logging
 
 # Lambda captures the root logger but defaults to WARNING. Set INFO so all
-# logger.info() calls from steam_api, steam_leaderboard, and discord appear in CloudWatch.
+# logger.info() calls from the sources, aggregator, and discord appear in CloudWatch.
 logging.getLogger().setLevel(logging.INFO)
 
-from src.leaderboard import build_leaderboard
-from src.steam_leaderboard import build_steam_leaderboard
-from src.discord import send_to_discord, send_steam_to_discord
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from src.unified_leaderboard import build
+from src.discord import send_leaderboard
 
 
 def handler(event, context):
-    # League side: build the leaderboard, post if there's anything to show.
-    # If Riot's API is down or returns no matches for anyone, send nothing.
-    leaderboard = build_leaderboard()
-    if leaderboard:
-        send_to_discord(leaderboard)
+    # "Today" in Eastern time so day boundaries line up with the 9 AM ET trigger.
+    today = datetime.now(ZoneInfo("America/New_York")).date()
 
-    # Steam side: always runs because it needs to save today's snapshot regardless
-    # of whether it has yesterday's. send_steam_to_discord handles the empty case
-    # itself (no message sent on first run / no usable data).
-    steam_leaderboard = build_steam_leaderboard()
-    send_steam_to_discord(steam_leaderboard)
+    # One collection pass across all sources yields both the daily and weekly
+    # merged leaderboards. Posting each source's fetch happens exactly once.
+    daily, weekly = build(today)
+
+    # Daily leaderboard posts every day (skip if nobody played).
+    if daily:
+        send_leaderboard(daily, "daily", today)
+
+    # Weekly recap is added on Sundays (weekday() == 6).
+    if today.weekday() == 6 and weekly:
+        send_leaderboard(weekly, "weekly", today)
 
     return {"statusCode": 200, "body": "Done"}

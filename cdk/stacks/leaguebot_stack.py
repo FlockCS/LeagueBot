@@ -36,6 +36,24 @@ class LeaguebotStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
         )
 
+        # DynamoDB table for computed daily League playtime — one item per
+        # (player, day). The weekly recap sums the week's items instead of
+        # re-querying Riot, keeping us inside the Lambda timeout and the API rate
+        # limit. Same tiny footprint as the Steam table (well inside free tier).
+        riot_table = dynamodb.Table(
+            self, "RiotPlaytimeTable",
+            table_name="leaguebot-riot-playtime",
+            partition_key=dynamodb.Attribute(
+                name="discord_id",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            sort_key=dynamodb.Attribute(
+                name="date",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+        )
+
         fn = _lambda.Function(
             self, "LeaguebotFunction",
             runtime=_lambda.Runtime.PYTHON_3_12,
@@ -55,6 +73,7 @@ class LeaguebotStack(Stack):
             memory_size=256,
             environment={
                 "STEAM_TABLE_NAME": steam_table.table_name,
+                "RIOT_TABLE_NAME": riot_table.table_name,
             },
         )
 
@@ -66,6 +85,7 @@ class LeaguebotStack(Stack):
         ))
 
         steam_table.grant_read_write_data(fn)
+        riot_table.grant_read_write_data(fn)
 
         rule = events.Rule(
             self, "DailySchedule",

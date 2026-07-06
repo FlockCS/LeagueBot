@@ -2,6 +2,7 @@ import os
 from unittest.mock import MagicMock, patch
 
 os.environ["STEAM_TABLE_NAME"] = "test-steam-table"
+os.environ["RIOT_TABLE_NAME"] = "test-riot-table"
 
 _ssm_values = {
     "/leaguebot/riot-api-key": "test-riot-key",
