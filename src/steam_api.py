@@ -13,8 +13,9 @@ _api_key = _ssm.get_parameter(Name="/leaguebot/steam-api-key", WithDecryption=Tr
 
 def get_player_status(steam_id):
     # Returns {name, game} dict, where `game` is what they're currently playing
-    # (or None if offline / not in a game). We only use `name` in the leaderboard,
-    # but `game` could be used later for "who is playing what right now" features.
+    # (or None if offline / not in a game). Not used by the leaderboard anymore
+    # (display names come from the config roster) — kept as a utility for a future
+    # "who is playing what right now" feature.
     res = requests.get(STEAM_API_URL, params={
         "key": _api_key,
         "steamids": steam_id,

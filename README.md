@@ -23,14 +23,17 @@ Each source derives period totals differently but produces the same normalized s
   each day's computed hours are persisted so the weekly recap sums the week instead
   of re-querying Riot (which would exceed the dev-key rate limit / Lambda timeout).
 
-Cross-source merging is by `discord_id`: give a League player in `config.PLAYERS` the
-same `discord_id` as their `STEAM_PLAYERS` entry and their hours combine into one row.
+Players live in one roster, `config.PLAYERS` — one row per person, keyed by a
+source-neutral `player_id`. Each person's source handles are just fields on their row
+(`steam_id`, and/or `riot: {game_name, tag_line}`); include whichever apply. Both
+sources emit playtime keyed by `player_id`, so a person's Steam and League hours merge
+into one leaderboard row automatically.
 
 ## Project structure
 
 ```
 src/
-  config.py             - Region, base URLs, and the Steam + League player lists
+  config.py             - Region, base URLs, and the unified player roster (PLAYERS)
   models.py             - PlayerPlaytime: the normalized per-person, per-game unit
   riot_api.py           - Riot API calls (PUUID lookup, match history, duration)
   steam_api.py          - Steam API calls (persona name, owned games / playtime)

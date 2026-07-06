@@ -44,7 +44,7 @@ class LeaguebotStack(Stack):
             self, "RiotPlaytimeTable",
             table_name="leaguebot-riot-playtime",
             partition_key=dynamodb.Attribute(
-                name="discord_id",
+                name="player_id",
                 type=dynamodb.AttributeType.STRING,
             ),
             sort_key=dynamodb.Attribute(

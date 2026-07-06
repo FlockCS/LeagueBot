@@ -40,12 +40,10 @@ class TestCollect:
     @patch("src.sources.steam.save_snapshot")
     @patch("src.sources.steam.load_snapshot")
     @patch("src.sources.steam.get_owned_games")
-    @patch("src.sources.steam.get_player_status")
     @patch("src.sources.steam.time.sleep")
     def test_computes_daily_and_weekly_playtime(
-        self, mock_sleep, mock_status, mock_games, mock_load, mock_save, mock_delete
+        self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
     ):
-        mock_status.return_value = {"name": "Donkey", "game": None}
         mock_games.return_value = {"Counter-Strike 2": 1300, "Dota 2": 600}
 
         def fake_load(date_key, steam_id):
@@ -56,18 +54,20 @@ class TestCollect:
 
         mock_load.side_effect = fake_load
 
-        with patch("src.sources.steam.STEAM_PLAYERS", [{"discord_id": "1", "steam_id": "100"}]):
+        roster = [{"player_id": "donkey", "name": "Donkey", "steam_id": "100"}]
+        with patch("src.sources.steam.PLAYERS", roster):
             daily, weekly = collect(date(2026, 5, 13))  # a Wednesday
 
-        # Daily: CS2 +200 min, Dota +20 min = 220 min = 3.667 hrs, keyed by discord_id.
+        # Daily: CS2 +200 min, Dota +20 min = 220 min = 3.667 hrs, keyed by player_id.
         assert len(daily) == 1
-        assert daily[0].person_id == "1"
+        assert daily[0].person_id == "donkey"
         assert daily[0].display_name == "Donkey"
         assert round(daily[0].total_hours, 2) == round(220 / 60, 2)
         assert round(daily[0].games["Counter-Strike 2"], 4) == round(200 / 60, 4)
 
         # Weekly: CS2 +300, Dota +600 vs Monday = 900 min = 15 hrs.
         assert len(weekly) == 1
+        assert weekly[0].person_id == "donkey"
         assert weekly[0].total_hours == 15.0
         assert round(weekly[0].games["Dota 2"], 4) == round(600 / 60, 4)
 
@@ -77,16 +77,15 @@ class TestCollect:
     @patch("src.sources.steam.save_snapshot")
     @patch("src.sources.steam.load_snapshot")
     @patch("src.sources.steam.get_owned_games")
-    @patch("src.sources.steam.get_player_status")
     @patch("src.sources.steam.time.sleep")
     def test_first_run_no_snapshots_skips_gracefully(
-        self, mock_sleep, mock_status, mock_games, mock_load, mock_save, mock_delete
+        self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
     ):
-        mock_status.return_value = {"name": "Donkey", "game": None}
         mock_games.return_value = {"Counter-Strike 2": 1000}
         mock_load.return_value = None
 
-        with patch("src.sources.steam.STEAM_PLAYERS", [{"discord_id": "1", "steam_id": "100"}]):
+        roster = [{"player_id": "donkey", "name": "Donkey", "steam_id": "100"}]
+        with patch("src.sources.steam.PLAYERS", roster):
             daily, weekly = collect(date(2026, 5, 13))
 
         assert daily == []
@@ -97,16 +96,32 @@ class TestCollect:
     @patch("src.sources.steam.save_snapshot")
     @patch("src.sources.steam.load_snapshot")
     @patch("src.sources.steam.get_owned_games")
-    @patch("src.sources.steam.get_player_status")
+    @patch("src.sources.steam.time.sleep")
+    def test_private_profile_skipped(
+        self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
+    ):
+        mock_games.return_value = None  # private profile
+        roster = [{"player_id": "donkey", "name": "Donkey", "steam_id": "100"}]
+        with patch("src.sources.steam.PLAYERS", roster):
+            daily, weekly = collect(date(2026, 5, 13))
+
+        assert daily == []
+        assert weekly == []
+        mock_save.assert_not_called()
+
+    @patch("src.sources.steam.delete_snapshots_before")
+    @patch("src.sources.steam.save_snapshot")
+    @patch("src.sources.steam.load_snapshot")
+    @patch("src.sources.steam.get_owned_games")
     @patch("src.sources.steam.time.sleep")
     def test_monday_triggers_cleanup(
-        self, mock_sleep, mock_status, mock_games, mock_load, mock_save, mock_delete
+        self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
     ):
-        mock_status.return_value = {"name": "Donkey", "game": None}
         mock_games.return_value = {"Counter-Strike 2": 1000}
         mock_load.return_value = None
 
-        with patch("src.sources.steam.STEAM_PLAYERS", [{"discord_id": "1", "steam_id": "100"}]):
+        roster = [{"player_id": "donkey", "name": "Donkey", "steam_id": "100"}]
+        with patch("src.sources.steam.PLAYERS", roster):
             collect(date(2026, 5, 11))  # a Monday
 
         mock_delete.assert_called_once_with("2026-05-11", "100")
@@ -115,29 +130,22 @@ class TestCollect:
     @patch("src.sources.steam.save_snapshot")
     @patch("src.sources.steam.load_snapshot")
     @patch("src.sources.steam.get_owned_games")
-    @patch("src.sources.steam.get_player_status")
     @patch("src.sources.steam.time.sleep")
-    def test_sorts_by_daily_hours_descending(
-        self, mock_sleep, mock_status, mock_games, mock_load, mock_save, mock_delete
+    def test_skips_league_only_players(
+        self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
     ):
-        # collect returns rows in player order; the aggregator sorts. Here we just
-        # confirm both players surface with the right totals.
-        mock_status.side_effect = [
-            {"name": "Alice", "game": None},
-            {"name": "Bob", "game": None},
-        ]
-        mock_games.side_effect = [
-            {"Counter-Strike 2": 200},
-            {"Counter-Strike 2": 600},
-        ]
+        # A roster row with no steam_id must be ignored by the Steam source.
+        mock_games.return_value = {"Counter-Strike 2": 200}
         mock_load.side_effect = lambda date_key, _: (
             {"games": {}} if date_key == "2026-05-12" else None
         )
-
-        players = [{"discord_id": "1", "steam_id": "111"}, {"discord_id": "2", "steam_id": "222"}]
-        with patch("src.sources.steam.STEAM_PLAYERS", players):
+        roster = [
+            {"player_id": "kabir", "name": "Kabir", "riot": {"game_name": "x", "tag_line": "y"}},
+            {"player_id": "chris", "name": "Chris", "steam_id": "222"},
+        ]
+        with patch("src.sources.steam.PLAYERS", roster):
             daily, _ = collect(date(2026, 5, 13))
 
-        totals = {p.display_name: p.total_hours for p in daily}
-        assert round(totals["Bob"], 4) == round(600 / 60, 4)
-        assert round(totals["Alice"], 4) == round(200 / 60, 4)
+        names = {p.display_name for p in daily}
+        assert names == {"Chris"}
+        assert mock_games.call_count == 1  # only the Steam-tracked player fetched

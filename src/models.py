@@ -1,8 +1,8 @@
 # The normalized unit every source produces and the aggregator consumes.
 # One PlayerPlaytime = one person's playtime within a single window (day or week),
-# broken down per game. `person_id` is the canonical cross-source identity
-# (a Discord user id) so the same human's Steam and League playtime can be merged
-# into a single leaderboard row. `games` maps a game's display name -> hours.
+# broken down per game. `person_id` is the canonical, source-neutral identity
+# (config.PLAYERS[*]["player_id"]) so the same human's Steam and League playtime can
+# be merged into a single leaderboard row. `games` maps a game's display name -> hours.
 
 from dataclasses import dataclass, field
 

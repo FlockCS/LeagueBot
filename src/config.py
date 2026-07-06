@@ -7,37 +7,28 @@ ACCOUNT_BASE_URL = "https://americas.api.riotgames.com"
 STEAM_API_URL = "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/"
 STEAM_OWNED_GAMES_URL = "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/"
 
-STEAM_PLAYERS = [
-    {"discord_id": "225032479734628353", "steam_id": "76561198158759064"}, #Donkey
-    {"discord_id": "297099102989189121", "steam_id": "76561198289885826"}, #Pranav
-    {"discord_id": "208305260492619776", "steam_id": "76561198086647449"}, #Chris
-    {"discord_id": "333959051392188417", "steam_id": "76561198365781139"}, #Manish
-    {"discord_id": "439939611741913098", "steam_id": "76561198964040125"}, #Mihir
-    {"discord_id": "168190192698654720", "steam_id": "76561198162142859"}, #Maanas
-    {"discord_id": "428622485949513729", "steam_id": "76561199087416095"}, #Veesh
-    {"discord_id": "272494999680188417", "steam_id": "76561198264091639"}, #Don
-    {"discord_id": "449229001085681668", "steam_id": "76561198366009892"}, #Prabhav
-    {"discord_id": "278664292818092052", "steam_id": "76561198845038364"}, #Will
-]
-
-# League (Riot) players. `discord_id` is the canonical cross-source identity: when a
-# League player's discord_id matches a STEAM_PLAYERS discord_id above, their League
-# and Steam hours merge into ONE row on the unified leaderboard.
-#
-# Entries still marked "league_*" are placeholders for players with no known Steam
-# account yet — they appear as their own row (League hours only) until you replace
-# the placeholder with the real Discord id from STEAM_PLAYERS. The numeric ids below
-# are already linked to their Steam counterpart (see the trailing comment on each).
+# Unified player roster — one row per person. `player_id` is the canonical, source-
+# neutral identity and the primary key everywhere (leaderboard merge + the Riot
+# playtime table). A person's source handles are just fields on their row:
+#   steam_id — SteamID64; present if they're tracked on Steam (omit otherwise)
+#   riot     — {game_name, tag_line}; present if they're tracked on League (omit otherwise)
+# Both the Steam and Riot sources iterate this one list and emit playtime keyed by
+# player_id, so a person's Steam and League hours merge into ONE leaderboard row.
+# `name` is the display name shown on the board.
 PLAYERS = [
-    {"discord_id": "333959051392188417", "game_name": "Manny",            "tag_line": "MANG"},   # = Steam Manish
-    {"discord_id": "league_gigawatts",   "game_name": "1000Gigawatts",    "tag_line": "NA1"},
-    {"discord_id": "428622485949513729", "game_name": "Veesh",            "tag_line": "5030"},   # = Steam Veesh
-    {"discord_id": "league_brill",       "game_name": "Brill",            "tag_line": "RUTG"},
-    {"discord_id": "225032479734628353", "game_name": "IGotBannedAsSett", "tag_line": "NA1"},    # = Steam Donkey
-    {"discord_id": "272494999680188417", "game_name": "Keyboard Warrior", "tag_line": "Don"},    # = Steam Don
-    {"discord_id": "league_neel",        "game_name": "neeltatertots",    "tag_line": "NA1"},
-    {"discord_id": "league_sqi",         "game_name": "sqi",              "tag_line": "NA1"},
-    {"discord_id": "297099102989189121", "game_name": "tinman1337133722", "tag_line": "YEEEE"},  # = Steam Pranav
-    {"discord_id": "168190192698654720", "game_name": "Warden1789023410", "tag_line": "SANJI"},  # = Steam Maanas
-    {"discord_id": "league_yungbruh",    "game_name": "Yung Bruh 9",      "tag_line": "NA1"},
+    {"player_id": "manish",  "name": "Manish",  "steam_id": "76561198365781139", "riot": {"game_name": "Manny",            "tag_line": "MANG"}},
+    {"player_id": "kabir",   "name": "Kabir",                                     "riot": {"game_name": "1000Gigawatts",    "tag_line": "NA1"}},
+    {"player_id": "vishal",  "name": "Vishal",  "steam_id": "76561199087416095", "riot": {"game_name": "Veesh",            "tag_line": "5030"}},
+    {"player_id": "bryle",   "name": "Bryle",                                     "riot": {"game_name": "Brill",            "tag_line": "RUTG"}},
+    {"player_id": "daksh",   "name": "Daksh",   "steam_id": "76561198158759064", "riot": {"game_name": "IGotBannedAsSett", "tag_line": "NA1"}},
+    {"player_id": "amer",    "name": "Amer",    "steam_id": "76561198264091639", "riot": {"game_name": "Keyboard Warrior", "tag_line": "Don"}},
+    {"player_id": "neel",    "name": "Neel",                                      "riot": {"game_name": "neeltatertots",    "tag_line": "NA1"}},
+    {"player_id": "sai",     "name": "Sai",                                       "riot": {"game_name": "sqi",              "tag_line": "NA1"}},
+    {"player_id": "pranav",  "name": "Pranav",  "steam_id": "76561198289885826", "riot": {"game_name": "tinman1337133722", "tag_line": "YEEEE"}},
+    {"player_id": "maanas",  "name": "Maanas",  "steam_id": "76561198162142859", "riot": {"game_name": "Warden1789023410", "tag_line": "SANJI"}},
+    {"player_id": "numair",  "name": "Numair",                                    "riot": {"game_name": "Yung Bruh 9",      "tag_line": "NA1"}},
+    {"player_id": "chris",   "name": "Chris",   "steam_id": "76561198086647449"},
+    {"player_id": "prabhav", "name": "Prabhav", "steam_id": "76561198366009892"},
+    {"player_id": "will",    "name": "Will",    "steam_id": "76561198845038364"},
+    {"player_id": "mihir",   "name": "Mihir",   "steam_id": "76561198964040125"},
 ]

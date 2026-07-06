@@ -22,6 +22,11 @@ logger = logging.getLogger(__name__)
 GAME_NAME = "League of Legends"
 
 
+def _riot_players():
+    # Roster rows tracked on League (those carrying a riot handle).
+    return [p for p in PLAYERS if p.get("riot")]
+
+
 def _week_start(today):
     return today - timedelta(days=today.weekday())
 
@@ -42,26 +47,27 @@ def _daily(today):
     logger.info(f"Collecting League playtime for {today}")
     results = []
 
-    for player in PLAYERS:
-        discord_id = player["discord_id"]
-        game_name = player["game_name"]
-        tag_line = player["tag_line"]
+    for player in _riot_players():
+        player_id = player["player_id"]
+        name = player["name"]
+        game_name = player["riot"]["game_name"]
+        tag_line = player["riot"]["tag_line"]
 
         puuid = get_puuid(game_name, tag_line)
         if not puuid:
-            logger.warning(f"Skipping {game_name}#{tag_line}: no PUUID")
+            logger.warning(f"Skipping {name} ({game_name}#{tag_line}): no PUUID")
             continue
         time.sleep(1.2)
 
         hours = calculate_hours(puuid, start_ts, end_ts)
         if hours > 0:
-            save_daily(today, discord_id, game_name, hours)
+            save_daily(today, player_id, name, hours)
             results.append(PlayerPlaytime(
-                person_id=discord_id,
-                display_name=game_name,
+                person_id=player_id,
+                display_name=name,
                 games={GAME_NAME: hours},
             ))
-            logger.info(f"{game_name}: {hours:.1f} League hrs yesterday")
+            logger.info(f"{name}: {hours:.1f} League hrs yesterday")
 
     return results
 
@@ -72,26 +78,24 @@ def _weekly(today):
     week_start = _week_start(today)
     weekly = []
 
-    for player in PLAYERS:
-        discord_id = player["discord_id"]
-        records = load_week(week_start, discord_id)
+    for player in _riot_players():
+        player_id = player["player_id"]
+        records = load_week(week_start, player_id)
         total = sum(float(r["hours"]) for r in records)
         if total > 0:
-            # Prefer the most recent record's stored name; fall back to config.
-            name = records[-1].get("name", player["game_name"])
             weekly.append(PlayerPlaytime(
-                person_id=discord_id,
-                display_name=name,
+                person_id=player_id,
+                display_name=player["name"],
                 games={GAME_NAME: total},
             ))
-            logger.info(f"{name}: {total:.1f} League hrs this week")
+            logger.info(f"{player['name']}: {total:.1f} League hrs this week")
 
     # Monday cleanup: drop last week's records after the recap window rolls over,
     # mirroring the Steam snapshot cleanup.
     if today.weekday() == 0:
         logger.info("Monday cleanup: deleting League records before today")
-        for player in PLAYERS:
-            delete_daily_before(today, player["discord_id"])
+        for player in _riot_players():
+            delete_daily_before(today, player["player_id"])
 
     return weekly
 
