@@ -57,10 +57,14 @@ def _playtime_from_deltas(player_id, name, deltas):
     )
 
 
-def collect(today):
+def collect(now):
     # Single pass over every Steam-tracked player: fetch, snapshot, and compute both
     # the daily and weekly delta in one loop so we only hit the Steam API once per run.
+    # `now` is the posting-time datetime; the daily delta is today's snapshot (taken
+    # now) minus yesterday's (taken at the previous posting time), which is the same
+    # trailing "previous post -> this post" window the Riot source uses.
     # Returns (daily: list[PlayerPlaytime], weekly: list[PlayerPlaytime]).
+    today = now.date()
     yesterday = today - timedelta(days=1)
     week_start = _week_start(today)
     today_key = _date_str(today)

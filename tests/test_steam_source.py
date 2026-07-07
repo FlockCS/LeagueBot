@@ -1,6 +1,11 @@
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from unittest.mock import patch
 from src.sources.steam import _game_deltas, _week_start, collect
+
+_ET = ZoneInfo("America/New_York")
+WED = datetime(2026, 5, 13, 10, 0, tzinfo=_ET)   # Wednesday 10 AM ET
+MON = datetime(2026, 5, 11, 10, 0, tzinfo=_ET)   # Monday 10 AM ET
 
 
 class TestGameDeltas:
@@ -56,7 +61,7 @@ class TestCollect:
 
         roster = [{"player_id": "donkey", "name": "Donkey", "steam_id": "100"}]
         with patch("src.sources.steam.PLAYERS", roster):
-            daily, weekly = collect(date(2026, 5, 13))  # a Wednesday
+            daily, weekly = collect(WED)  # a Wednesday
 
         # Daily: CS2 +200 min, Dota +20 min = 220 min = 3.667 hrs, keyed by player_id.
         assert len(daily) == 1
@@ -86,7 +91,7 @@ class TestCollect:
 
         roster = [{"player_id": "donkey", "name": "Donkey", "steam_id": "100"}]
         with patch("src.sources.steam.PLAYERS", roster):
-            daily, weekly = collect(date(2026, 5, 13))
+            daily, weekly = collect(WED)
 
         assert daily == []
         assert weekly == []
@@ -103,7 +108,7 @@ class TestCollect:
         mock_games.return_value = None  # private profile
         roster = [{"player_id": "donkey", "name": "Donkey", "steam_id": "100"}]
         with patch("src.sources.steam.PLAYERS", roster):
-            daily, weekly = collect(date(2026, 5, 13))
+            daily, weekly = collect(WED)
 
         assert daily == []
         assert weekly == []
@@ -122,7 +127,7 @@ class TestCollect:
 
         roster = [{"player_id": "donkey", "name": "Donkey", "steam_id": "100"}]
         with patch("src.sources.steam.PLAYERS", roster):
-            collect(date(2026, 5, 11))  # a Monday
+            collect(MON)  # a Monday
 
         mock_delete.assert_called_once_with("2026-05-11", "100")
 
@@ -144,7 +149,7 @@ class TestCollect:
             {"player_id": "chris", "name": "Chris", "steam_id": "222"},
         ]
         with patch("src.sources.steam.PLAYERS", roster):
-            daily, _ = collect(date(2026, 5, 13))
+            daily, _ = collect(WED)
 
         names = {p.display_name for p in daily}
         assert names == {"Chris"}

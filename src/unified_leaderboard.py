@@ -32,14 +32,15 @@ def _sorted(by_person):
     return sorted(by_person.values(), key=lambda p: p.total_hours, reverse=True)
 
 
-def build(today):
-    # Collect from every source once, merging per person. Returns
+def build(now):
+    # Collect from every source once, merging per person. `now` is the posting-time
+    # datetime; each source derives its window from it. Returns
     # (daily_rows, weekly_rows), each a list[PlayerPlaytime] sorted by total desc.
     daily_by_person = {}
     weekly_by_person = {}
 
     for source in SOURCES:
-        daily, weekly = source.collect(today)
+        daily, weekly = source.collect(now)
         _merge_into(daily_by_person, daily)
         _merge_into(weekly_by_person, weekly)
 
