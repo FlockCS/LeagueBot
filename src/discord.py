@@ -1,68 +1,46 @@
 import logging
 import boto3
 import requests
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import timedelta
 
 logger = logging.getLogger(__name__)
 
 _ssm = boto3.client("ssm", region_name="us-east-1")
 _webhook_url = _ssm.get_parameter(Name="/leaguebot/discord-webhook-url", WithDecryption=True)["Parameter"]["Value"]
 
-
-def send_to_discord(results):
-    tz = ZoneInfo("America/New_York")
-    now = datetime.now(tz)
-    today_start = datetime(now.year, now.month, now.day, tzinfo=tz)
-    yesterday_start = today_start - timedelta(days=1)
-    fmt = "%b %d %I:%M %p %Z"
-    window_str = f"{yesterday_start.strftime(fmt)} → {today_start.strftime(fmt)}"
-
-    message = f"**\U0001f3c6 Top 3 League Grind:**\n_{window_str}_\n\n"
-    medals = ["\U0001f947", "\U0001f948", "\U0001f949"]
-
-    for i, (name, hours) in enumerate(results[:3]):
-        message += f"{medals[i]} {name} — {hours:.1f} hrs\n"
-
-    res = requests.post(_webhook_url, json={"content": message})
-    res.raise_for_status()
+_MEDALS = ["\U0001f947", "\U0001f948", "\U0001f949"]  # 🥇 🥈 🥉
 
 
-def send_steam_to_discord(leaderboard):
-    # Sunday (weekday=6) posts the weekly recap; Mon–Sat post the daily leaderboard.
-    # Splitting by day avoids competing sections in a single message.
-    today = leaderboard.today
-    medals = ["\U0001f947", "\U0001f948", "\U0001f949"]  # 🥇 🥈 🥉
+def _window_str(period, today):
+    fmt = "%b %d"
+    if period == "weekly":
+        week_start = today - timedelta(days=today.weekday())
+        return f"{week_start.strftime(fmt)} → {today.strftime(fmt)}"
+    yesterday = today - timedelta(days=1)
+    return f"{yesterday.strftime(fmt)} → {today.strftime(fmt)}"
 
-    if today.weekday() == 6:
-        if not leaderboard.weekly_results:
-            logger.info("Sunday with no weekly results — skipping post")
-            return
-        week_start = today - timedelta(days=today.weekday() + 1)  # last Monday
-        fmt = "%b %d"
-        logger.info(f"Posting Steam weekly recap ({len(leaderboard.weekly_results)} players)")
-        message = f"**\U0001f4c5 Steam Weekly Recap:**\n_{week_start.strftime(fmt)} → {today.strftime(fmt)}_\n\n"  # 📅
-        for i, (name, hours, top_games) in enumerate(leaderboard.weekly_results[:3]):
-            message += f"{medals[i]} {name} — {hours:.1f} hrs\n"
-            for game, game_hours in top_games:
-                message += f"   • {game} — {game_hours:.1f} hrs\n"
-            message += "\n"
+
+def send_leaderboard(rows, period, today):
+    # rows: list[PlayerPlaytime] already sorted by total hours descending.
+    # period: "daily" or "weekly". Renders the top 3 with a per-game breakdown and
+    # posts to Discord. Callers guard against empty rows, but we no-op defensively.
+    if not rows:
+        logger.info(f"No {period} rows — skipping post")
+        return
+
+    if period == "weekly":
+        header = "\U0001f4c5 Weekly Recap"   # 📅
     else:
-        if not leaderboard.daily_results:
-            logger.info(f"{today.strftime('%A')} with no daily results — skipping post")
-            return
-        logger.info(f"Posting Steam daily leaderboard ({len(leaderboard.daily_results)} players)")
-        yesterday = today - timedelta(days=1)
-        fmt = "%b %d"
-        # \U0001f3ae is the 🎮 video game emoji.
-        message = f"**\U0001f3ae Top Steam Players Today:**\n_{yesterday.strftime(fmt)} → {today.strftime(fmt)}_\n\n"
-        # daily_results items are (name, total_hours, [(game_name, game_hours), ...]).
-        for i, (name, hours, top_games) in enumerate(leaderboard.daily_results[:3]):
-            message += f"{medals[i]} {name} — {hours:.1f} hrs\n"
-            for game, game_hours in top_games:
-                message += f"   • {game} — {game_hours:.1f} hrs\n"
-            message += "\n"
+        header = "\U0001f3c6 Top Gamers Today"  # 🏆
+
+    message = f"**{header}:**\n_{_window_str(period, today)}_\n\n"
+    for i, player in enumerate(rows[:3]):
+        message += f"{_MEDALS[i]} {player.display_name} — {player.total_hours:.1f} hrs\n"
+        # Games listed most-played first; League and Steam titles sit side by side.
+        for game, hours in sorted(player.games.items(), key=lambda g: g[1], reverse=True):
+            message += f"   • {game} — {hours:.1f} hrs\n"
+        message += "\n"
 
     res = requests.post(_webhook_url, json={"content": message})
     res.raise_for_status()
-    logger.info("Steam message posted to Discord")
+    logger.info(f"{period.capitalize()} leaderboard posted to Discord")
