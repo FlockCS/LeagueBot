@@ -7,6 +7,9 @@
 #     name: persona name as of that day (e.g. "Donkey")
 #     games: {game_name: lifetime_minutes_at_that_moment}
 #     total_minutes: sum of games.values()  (cached so weekly delta is one read)
+#     captured_at: ISO-8601 timestamp of the exact moment this snapshot was taken.
+#                  The real start of the window a later diff covers (a snapshot's
+#                  date is only a day-granularity key; captured_at is the true time).
 
 import os
 import boto3
@@ -19,9 +22,10 @@ _dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
 _table = _dynamodb.Table(os.environ["STEAM_TABLE_NAME"])
 
 
-def save_snapshot(date, steam_id, name, games):
+def save_snapshot(date, steam_id, name, games, captured_at):
     # PutItem overwrites by default (no version check), so running the Lambda twice
-    # in one day just replaces the snapshot — exactly what we want.
+    # in one day just replaces the snapshot — exactly what we want. captured_at is
+    # the ISO-8601 moment of capture, used later to label the real window a diff spans.
     total_minutes = sum(games.values())
     _table.put_item(Item={
         "steam_id": steam_id,
@@ -29,6 +33,7 @@ def save_snapshot(date, steam_id, name, games):
         "name": name,
         "games": games,
         "total_minutes": total_minutes,
+        "captured_at": captured_at,
     })
 
 

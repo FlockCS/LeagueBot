@@ -1,8 +1,16 @@
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from unittest.mock import patch
 from src.sources.riot import collect, GAME_NAME
 
 PLAYER = {"player_id": "vishal", "name": "Vishal", "riot": {"game_name": "Veesh", "tag_line": "5030"}}
+
+_ET = ZoneInfo("America/New_York")
+WED = datetime(2026, 5, 13, 10, 0, tzinfo=_ET)   # Wednesday 10 AM ET
+MON = datetime(2026, 5, 11, 10, 0, tzinfo=_ET)   # Monday 10 AM ET
+# The daily window start supplied by the aggregator (previous post/snapshot time).
+START = datetime(2026, 5, 12, 9, 30, tzinfo=_ET)      # for the Wednesday runs
+START_MON = datetime(2026, 5, 10, 9, 30, tzinfo=_ET)  # for the Monday run
 
 
 class TestCollectDaily:
@@ -20,13 +28,15 @@ class TestCollectDaily:
         mock_load.return_value = []
 
         with patch("src.sources.riot.PLAYERS", [PLAYER]):
-            daily, _ = collect(date(2026, 5, 13))  # Wednesday
+            daily, _ = collect(WED, START)  # Wednesday
 
         assert len(daily) == 1
         assert daily[0].person_id == "vishal"
         assert daily[0].display_name == "Vishal"
         assert daily[0].games == {GAME_NAME: 4.0}
         mock_save.assert_called_once_with(date(2026, 5, 13), "vishal", "Vishal", 4.0)
+        # The match query uses [window_start, now] as its epoch-second bounds.
+        mock_hours.assert_called_once_with("fake-puuid", int(START.timestamp()), int(WED.timestamp()))
 
     @patch("src.sources.riot.delete_daily_before")
     @patch("src.sources.riot.load_week")
@@ -42,7 +52,7 @@ class TestCollectDaily:
         mock_load.return_value = []
 
         with patch("src.sources.riot.PLAYERS", [PLAYER]):
-            daily, _ = collect(date(2026, 5, 13))
+            daily, _ = collect(WED, START)
 
         assert daily == []
         mock_save.assert_not_called()
@@ -60,7 +70,7 @@ class TestCollectDaily:
         mock_load.return_value = []
 
         with patch("src.sources.riot.PLAYERS", [PLAYER]):
-            daily, _ = collect(date(2026, 5, 13))
+            daily, _ = collect(WED, START)
 
         assert daily == []
         mock_hours.assert_not_called()
@@ -83,7 +93,7 @@ class TestCollectDaily:
             PLAYER,
         ]
         with patch("src.sources.riot.PLAYERS", roster):
-            daily, _ = collect(date(2026, 5, 13))
+            daily, _ = collect(WED, START)
 
         assert [p.person_id for p in daily] == ["vishal"]
         assert mock_puuid.call_count == 1  # only the League-tracked player queried
@@ -107,7 +117,7 @@ class TestCollectWeekly:
         ]
 
         with patch("src.sources.riot.PLAYERS", [PLAYER]):
-            _, weekly = collect(date(2026, 5, 13))
+            _, weekly = collect(WED, START)
 
         assert len(weekly) == 1
         assert weekly[0].person_id == "vishal"
@@ -128,6 +138,6 @@ class TestCollectWeekly:
         mock_load.return_value = []
 
         with patch("src.sources.riot.PLAYERS", [PLAYER]):
-            collect(date(2026, 5, 11))  # Monday
+            collect(MON, START_MON)  # Monday
 
         mock_delete.assert_called_once_with(date(2026, 5, 11), "vishal")

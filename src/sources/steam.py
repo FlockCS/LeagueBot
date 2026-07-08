@@ -13,8 +13,11 @@
 
 import logging
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from src.config import PLAYERS
+
+_ET = ZoneInfo("America/New_York")
 from src.models import PlayerPlaytime
 from src.steam_api import get_owned_games
 from src.steam_snapshot import save_snapshot, load_snapshot, delete_snapshots_before
@@ -57,19 +60,38 @@ def _playtime_from_deltas(player_id, name, deltas):
     )
 
 
-def collect(today):
+def _earliest(captured_ats):
+    # Parse ISO-8601 capture timestamps and return the earliest as a datetime, or
+    # None if none are present (e.g. pre-existing snapshots saved before captured_at
+    # was added). The earliest reference is the true start of the diff window.
+    # Re-attach the ET zone so the label renders "EDT"/"EST" (fromisoformat yields a
+    # bare UTC offset otherwise).
+    times = [datetime.fromisoformat(c).astimezone(_ET) for c in captured_ats if c]
+    return min(times) if times else None
+
+
+def collect(now):
     # Single pass over every Steam-tracked player: fetch, snapshot, and compute both
     # the daily and weekly delta in one loop so we only hit the Steam API once per run.
-    # Returns (daily: list[PlayerPlaytime], weekly: list[PlayerPlaytime]).
+    # `now` is the posting-time datetime; today's snapshot is taken now and diffed
+    # against the reference snapshot (yesterday's for daily, Monday's for weekly).
+    #
+    # Returns (daily, weekly, daily_since, weekly_since) where the *_since values are
+    # the actual capture times of the reference snapshots — the true window starts —
+    # or None if those snapshots predate captured_at (first run after this change).
+    today = now.date()
     yesterday = today - timedelta(days=1)
     week_start = _week_start(today)
     today_key = _date_str(today)
     yesterday_key = _date_str(yesterday)
     week_start_key = _date_str(week_start)
+    now_iso = now.isoformat()
 
     logger.info(f"Collecting Steam playtime for {today}")
     daily = []
     weekly = []
+    daily_ref_times = []   # captured_at of every yesterday snapshot we diffed against
+    weekly_ref_times = []  # captured_at of every Monday snapshot we diffed against
 
     for player in _steam_players():
         steam_id = player["steam_id"]
@@ -82,11 +104,12 @@ def collect(today):
             continue
 
         # Always persist today's snapshot — this is how the very first run bootstraps.
-        save_snapshot(today_key, steam_id, name, games)
+        save_snapshot(today_key, steam_id, name, games, now_iso)
         logger.debug(f"Saved snapshot for {name} ({steam_id}): {len(games)} games")
 
         yesterday_snap = load_snapshot(yesterday_key, steam_id)
         if yesterday_snap:
+            daily_ref_times.append(yesterday_snap.get("captured_at"))
             deltas = _game_deltas(games, yesterday_snap.get("games", {}))
             if deltas:
                 daily.append(_playtime_from_deltas(player_id, name, deltas))
@@ -96,6 +119,7 @@ def collect(today):
         # one we just wrote, so the delta is empty and the player is omitted.
         week_snap = load_snapshot(week_start_key, steam_id)
         if week_snap:
+            weekly_ref_times.append(week_snap.get("captured_at"))
             week_deltas = _game_deltas(games, week_snap.get("games", {}))
             if week_deltas:
                 weekly.append(_playtime_from_deltas(player_id, name, week_deltas))
@@ -111,4 +135,4 @@ def collect(today):
         for player in _steam_players():
             delete_snapshots_before(today_key, player["steam_id"])
 
-    return daily, weekly
+    return daily, weekly, _earliest(daily_ref_times), _earliest(weekly_ref_times)

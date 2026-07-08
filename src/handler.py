@@ -15,19 +15,21 @@ from src.discord import send_leaderboard
 
 
 def handler(event, context):
-    # "Today" in Eastern time so day boundaries line up with the 9 AM ET trigger.
-    today = datetime.now(ZoneInfo("America/New_York")).date()
+    # `now` is the moment of this run in Eastern time — the "posting time." The daily
+    # window is the trailing 24h ending here (i.e. previous post → this post), so
+    # every source reports the same span. Passed through so the message labels it too.
+    now = datetime.now(ZoneInfo("America/New_York"))
 
-    # One collection pass across all sources yields both the daily and weekly
-    # merged leaderboards. Posting each source's fetch happens exactly once.
-    daily, weekly = build(today)
+    # One collection pass across all sources yields both merged leaderboards plus the
+    # true start of each window (measured from the reference snapshot, not assumed).
+    daily, weekly, daily_start, weekly_start = build(now)
 
     # Daily leaderboard posts every day (skip if nobody played).
     if daily:
-        send_leaderboard(daily, "daily", today)
+        send_leaderboard(daily, "daily", daily_start, now)
 
     # Weekly recap is added on Sundays (weekday() == 6).
-    if today.weekday() == 6 and weekly:
-        send_leaderboard(weekly, "weekly", today)
+    if now.weekday() == 6 and weekly:
+        send_leaderboard(weekly, "weekly", weekly_start, now)
 
     return {"statusCode": 200, "body": "Done"}
