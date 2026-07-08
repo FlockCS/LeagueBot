@@ -1,11 +1,12 @@
 # League (Riot) playtime source. Unlike Steam, Riot's match API returns exact game
 # durations for an arbitrary time window, so:
-#   daily  = live query of the trailing 24h ending at the posting time, summed to hours
+#   daily  = live query over [window_start, now], summed to hours
 #   weekly = SUM of the last 7 persisted daily records (src/riot_snapshot.py)
-# The daily window (previous post -> this post) mirrors Steam's snapshot-to-snapshot
-# span, so both sources cover the same period. We persist each day's computed hours
-# and sum them for the weekly recap rather than re-querying a week of matches, which
-# would blow the 5-min Lambda timeout under the Riot dev-key rate limit (100 req / 2 min).
+# window_start is supplied by the aggregator (the previous post/snapshot time), so the
+# daily window matches Steam's snapshot-to-snapshot span exactly — both sources cover
+# the same period. We persist each day's computed hours and sum them for the weekly
+# recap rather than re-querying a week of matches, which would blow the 5-min Lambda
+# timeout under the Riot dev-key rate limit (100 req / 2 min).
 
 import logging
 import time
@@ -29,14 +30,16 @@ def _week_start(today):
     return today - timedelta(days=today.weekday())
 
 
-def _daily(now):
-    # Live-query the trailing-24h League hours per player and persist each result
-    # (keyed by the posting day) so the weekly recap can sum it later. Riot's match
-    # query takes startTime/endTime as epoch seconds.
+def _daily(now, window_start):
+    # Live-query League hours per player over [window_start, now] and persist each
+    # result (keyed by the posting day) so the weekly recap can sum it later.
+    # window_start is the real start of the window (the previous post/snapshot time),
+    # so League covers exactly the same span the Steam side does. Riot's match query
+    # takes startTime/endTime as epoch seconds.
     today = now.date()
-    start_ts = int((now - timedelta(days=1)).timestamp())
+    start_ts = int(window_start.timestamp())
     end_ts = int(now.timestamp())
-    logger.info(f"Collecting League playtime for window ending {now}")
+    logger.info(f"Collecting League playtime for {window_start} -> {now}")
     results = []
 
     for player in _riot_players():
@@ -93,9 +96,11 @@ def _weekly(now):
     return weekly
 
 
-def collect(now):
-    # `now` is the posting-time datetime. Returns (daily, weekly). _daily persists
-    # today's records first so _weekly's sum includes them.
-    daily = _daily(now)
+def collect(now, window_start):
+    # `now` is the posting-time datetime; `window_start` is the start of the daily
+    # window (the previous post/snapshot time, chosen by the aggregator so both
+    # sources cover the same span). Returns (daily, weekly). _daily persists today's
+    # records first so _weekly's sum includes them.
+    daily = _daily(now, window_start)
     weekly = _weekly(now)
     return daily, weekly

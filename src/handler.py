@@ -20,16 +20,16 @@ def handler(event, context):
     # every source reports the same span. Passed through so the message labels it too.
     now = datetime.now(ZoneInfo("America/New_York"))
 
-    # One collection pass across all sources yields both the daily and weekly
-    # merged leaderboards. Posting each source's fetch happens exactly once.
-    daily, weekly = build(now)
+    # One collection pass across all sources yields both merged leaderboards plus the
+    # true start of each window (measured from the reference snapshot, not assumed).
+    daily, weekly, daily_start, weekly_start = build(now)
 
     # Daily leaderboard posts every day (skip if nobody played).
     if daily:
-        send_leaderboard(daily, "daily", now)
+        send_leaderboard(daily, "daily", daily_start, now)
 
     # Weekly recap is added on Sundays (weekday() == 6).
     if now.weekday() == 6 and weekly:
-        send_leaderboard(weekly, "weekly", now)
+        send_leaderboard(weekly, "weekly", weekly_start, now)
 
     return {"statusCode": 200, "body": "Done"}

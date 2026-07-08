@@ -11,13 +11,13 @@ class TestHandler:
     def test_weekday_posts_daily_only(self, mock_build, mock_send):
         daily = [PlayerPlaytime("1", "Veesh", {"League of Legends": 4.0})]
         weekly = [PlayerPlaytime("1", "Veesh", {"League of Legends": 20.0})]
-        mock_build.return_value = (daily, weekly)
+        mock_build.return_value = (daily, weekly, None, None)
 
         result = handler({}, None)
 
         # Daily posted, weekly NOT posted on a weekday even though it's populated.
         assert mock_send.call_count == 1
-        rows, period, _today = mock_send.call_args[0]
+        rows, period, _start, _now = mock_send.call_args[0]
         assert period == "daily"
         assert rows == daily
         assert result["statusCode"] == 200
@@ -28,7 +28,7 @@ class TestHandler:
     def test_sunday_posts_daily_and_weekly(self, mock_build, mock_send):
         daily = [PlayerPlaytime("1", "Veesh", {"League of Legends": 4.0})]
         weekly = [PlayerPlaytime("1", "Veesh", {"League of Legends": 20.0})]
-        mock_build.return_value = (daily, weekly)
+        mock_build.return_value = (daily, weekly, None, None)
 
         handler({}, None)
 
@@ -40,7 +40,7 @@ class TestHandler:
     @patch("src.handler.send_leaderboard")
     @patch("src.handler.build")
     def test_skips_daily_post_when_empty(self, mock_build, mock_send):
-        mock_build.return_value = ([], [])
+        mock_build.return_value = ([], [], None, None)
         handler({}, None)
         mock_send.assert_not_called()
 
@@ -49,7 +49,7 @@ class TestHandler:
     @patch("src.handler.build")
     def test_sunday_with_empty_weekly_skips_weekly(self, mock_build, mock_send):
         daily = [PlayerPlaytime("1", "Veesh", {"League of Legends": 4.0})]
-        mock_build.return_value = (daily, [])
+        mock_build.return_value = (daily, [], None, None)
         handler({}, None)
 
         assert mock_send.call_count == 1

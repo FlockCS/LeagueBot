@@ -51,17 +51,22 @@ class TestCollect:
     ):
         mock_games.return_value = {"Counter-Strike 2": 1300, "Dota 2": 600}
 
+        # Reference snapshots carry the real capture time; the window starts should
+        # reflect those, not an assumed 24h.
+        yday_cap = datetime(2026, 5, 12, 9, 30, tzinfo=_ET)
+        mon_cap = datetime(2026, 5, 11, 9, 15, tzinfo=_ET)
+
         def fake_load(date_key, steam_id):
             return {
-                "2026-05-12": {"games": {"Counter-Strike 2": 1100, "Dota 2": 580}},
-                "2026-05-11": {"games": {"Counter-Strike 2": 1000}},
+                "2026-05-12": {"games": {"Counter-Strike 2": 1100, "Dota 2": 580}, "captured_at": yday_cap.isoformat()},
+                "2026-05-11": {"games": {"Counter-Strike 2": 1000}, "captured_at": mon_cap.isoformat()},
             }.get(date_key)
 
         mock_load.side_effect = fake_load
 
         roster = [{"player_id": "donkey", "name": "Donkey", "steam_id": "100"}]
         with patch("src.sources.steam.PLAYERS", roster):
-            daily, weekly = collect(WED)  # a Wednesday
+            daily, weekly, daily_since, weekly_since = collect(WED)  # a Wednesday
 
         # Daily: CS2 +200 min, Dota +20 min = 220 min = 3.667 hrs, keyed by player_id.
         assert len(daily) == 1
@@ -75,6 +80,13 @@ class TestCollect:
         assert weekly[0].person_id == "donkey"
         assert weekly[0].total_hours == 15.0
         assert round(weekly[0].games["Dota 2"], 4) == round(600 / 60, 4)
+
+        # Window starts come from the reference snapshots' captured_at.
+        assert daily_since == yday_cap
+        assert weekly_since == mon_cap
+
+        # Today's snapshot is saved with this run's timestamp.
+        assert mock_save.call_args[0][4] == WED.isoformat()
 
         mock_delete.assert_not_called()  # Wednesday — no cleanup.
 
@@ -91,7 +103,7 @@ class TestCollect:
 
         roster = [{"player_id": "donkey", "name": "Donkey", "steam_id": "100"}]
         with patch("src.sources.steam.PLAYERS", roster):
-            daily, weekly = collect(WED)
+            daily, weekly, daily_since, weekly_since = collect(WED)
 
         assert daily == []
         assert weekly == []
@@ -108,7 +120,7 @@ class TestCollect:
         mock_games.return_value = None  # private profile
         roster = [{"player_id": "donkey", "name": "Donkey", "steam_id": "100"}]
         with patch("src.sources.steam.PLAYERS", roster):
-            daily, weekly = collect(WED)
+            daily, weekly, daily_since, weekly_since = collect(WED)
 
         assert daily == []
         assert weekly == []
@@ -149,7 +161,7 @@ class TestCollect:
             {"player_id": "chris", "name": "Chris", "steam_id": "222"},
         ]
         with patch("src.sources.steam.PLAYERS", roster):
-            daily, _ = collect(WED)
+            daily, _, _, _ = collect(WED)
 
         names = {p.display_name for p in daily}
         assert names == {"Chris"}

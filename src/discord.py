@@ -1,7 +1,6 @@
 import logging
 import boto3
 import requests
-from datetime import timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -11,24 +10,19 @@ _webhook_url = _ssm.get_parameter(Name="/leaguebot/discord-webhook-url", WithDec
 _MEDALS = ["\U0001f947", "\U0001f948", "\U0001f949"]  # 🥇 🥈 🥉
 
 
-def _window_str(period, now):
-    # `now` is the posting-time datetime. Daily covers the trailing 24h (previous
-    # post → this post); weekly covers this Monday's posting time → now. Both show
-    # full timestamps so the boundaries are unambiguous (and both sources use the
-    # same span).
+def _window_str(start, now):
+    # Both bounds are actual datetimes — `start` is the true window start (the previous
+    # post/snapshot time, measured, not assumed) and `now` is this posting time. Full
+    # timestamps are shown so the window is unambiguous.
     fmt = "%b %d %I:%M %p %Z"
-    if period == "weekly":
-        start = now - timedelta(days=now.weekday())
-    else:
-        start = now - timedelta(days=1)
     return f"{start.strftime(fmt)} → {now.strftime(fmt)}"
 
 
-def send_leaderboard(rows, period, now):
+def send_leaderboard(rows, period, start, now):
     # rows: list[PlayerPlaytime] already sorted by total hours descending.
-    # period: "daily" or "weekly". `now` is the posting-time datetime used to label
-    # the window. Renders the top 3 with a per-game breakdown and posts to Discord.
-    # Callers guard against empty rows, but we no-op defensively.
+    # period: "daily" or "weekly" (selects the header). `start`/`now` are the real
+    # window bounds used for the label. Renders the top 3 with a per-game breakdown
+    # and posts to Discord. Callers guard against empty rows, but we no-op defensively.
     if not rows:
         logger.info(f"No {period} rows — skipping post")
         return
@@ -38,7 +32,7 @@ def send_leaderboard(rows, period, now):
     else:
         header = "\U0001f3c6 Top Gamers Today"  # 🏆
 
-    message = f"**{header}:**\n_{_window_str(period, now)}_\n\n"
+    message = f"**{header}:**\n_{_window_str(start, now)}_\n\n"
     for i, player in enumerate(rows[:3]):
         message += f"{_MEDALS[i]} {player.display_name} — {player.total_hours:.1f} hrs\n"
         # Games listed most-played first; League and Steam titles sit side by side.
