@@ -95,55 +95,55 @@ def collect(now):
 
     for player in _steam_players():
         steam_ids = player["steam_ids"]
+        primary_id = steam_ids[0]
         player_id = player["player_id"]
         name = player["name"]
 
-        # Accumulate deltas across all of this player's accounts before producing
-        # one PlayerPlaytime. Games that appear on multiple accounts are summed.
-        all_daily_deltas = {}
-        all_weekly_deltas = {}
-
+        # Merge all accounts into one game map before snapshotting. This keeps
+        # DynamoDB at exactly one row per player per day regardless of how many
+        # Steam accounts they have, and the deletion logic stays a single call.
+        merged_games = {}
         for steam_id in steam_ids:
             games = get_owned_games(steam_id)
             if games is None:
                 logger.warning(f"Skipping {name} ({steam_id}): no games visible (profile may be private)")
-                time.sleep(1)
-                continue
-
-            # Always persist today's snapshot — this is how the very first run bootstraps.
-            save_snapshot(today_key, steam_id, name, games, now_iso)
-            logger.debug(f"Saved snapshot for {name} ({steam_id}): {len(games)} games")
-
-            yesterday_snap = load_snapshot(yesterday_key, steam_id)
-            if yesterday_snap:
-                daily_ref_times.append(yesterday_snap.get("captured_at"))
-                for game, minutes in _game_deltas(games, yesterday_snap.get("games", {})).items():
-                    all_daily_deltas[game] = all_daily_deltas.get(game, 0) + minutes
-
-            # Weekly delta vs this Monday's snapshot. On Mondays the week snapshot is
-            # the one we just wrote, so the delta is empty and the player is omitted.
-            week_snap = load_snapshot(week_start_key, steam_id)
-            if week_snap:
-                weekly_ref_times.append(week_snap.get("captured_at"))
-                for game, minutes in _game_deltas(games, week_snap.get("games", {})).items():
-                    all_weekly_deltas[game] = all_weekly_deltas.get(game, 0) + minutes
-
+            else:
+                for game, minutes in games.items():
+                    merged_games[game] = merged_games.get(game, 0) + minutes
             time.sleep(1)
 
-        if all_daily_deltas:
-            daily.append(_playtime_from_deltas(player_id, name, all_daily_deltas))
-            logger.info(f"{name}: {sum(all_daily_deltas.values()) / 60:.1f} hrs today ({len(all_daily_deltas)} games)")
+        if not merged_games:
+            logger.warning(f"No game data for {name}: all accounts private or unreachable")
+            continue
 
-        if all_weekly_deltas:
-            weekly.append(_playtime_from_deltas(player_id, name, all_weekly_deltas))
-            logger.info(f"{name}: {sum(all_weekly_deltas.values()) / 60:.1f} hrs this week")
+        # Always persist today's merged snapshot under the primary steam_id.
+        save_snapshot(today_key, primary_id, name, merged_games, now_iso)
+        logger.debug(f"Saved merged snapshot for {name} ({len(steam_ids)} account(s)): {len(merged_games)} games")
+
+        yesterday_snap = load_snapshot(yesterday_key, primary_id)
+        if yesterday_snap:
+            daily_ref_times.append(yesterday_snap.get("captured_at"))
+            deltas = _game_deltas(merged_games, yesterday_snap.get("games", {}))
+            if deltas:
+                daily.append(_playtime_from_deltas(player_id, name, deltas))
+                logger.info(f"{name}: {sum(deltas.values()) / 60:.1f} hrs today ({len(deltas)} games)")
+
+        # Weekly delta vs this Monday's snapshot. On Mondays the week snapshot is the
+        # one we just wrote, so the delta is empty and the player is omitted.
+        week_snap = load_snapshot(week_start_key, primary_id)
+        if week_snap:
+            weekly_ref_times.append(week_snap.get("captured_at"))
+            week_deltas = _game_deltas(merged_games, week_snap.get("games", {}))
+            if week_deltas:
+                weekly.append(_playtime_from_deltas(player_id, name, week_deltas))
+                logger.info(f"{name}: {sum(week_deltas.values()) / 60:.1f} hrs this week")
 
     # Monday cleanup: drop old snapshots after computing (today's is preserved as the
-    # anchor for the new week).
+    # anchor for the new week). One call per player — the merged snapshot lives under
+    # the primary steam_id.
     if today.weekday() == 0:
         logger.info("Monday cleanup: deleting Steam snapshots before today")
         for player in _steam_players():
-            for steam_id in player["steam_ids"]:
-                delete_snapshots_before(today_key, steam_id)
+            delete_snapshots_before(today_key, player["steam_ids"][0])
 
     return daily, weekly, _earliest(daily_ref_times), _earliest(weekly_ref_times)

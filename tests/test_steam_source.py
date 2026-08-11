@@ -175,9 +175,10 @@ class TestCollect:
     def test_multi_account_deltas_are_combined(
         self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
     ):
-        # A player with two steam_ids should produce ONE PlayerPlaytime whose hours
-        # are the sum of both accounts' deltas. Games that only appear on one account
-        # are included; the same game on both accounts is summed.
+        # A player with two steam_ids should produce ONE PlayerPlaytime. Both accounts'
+        # games are merged before snapshotting, so only one snapshot is written (under
+        # the primary steam_id) and one reference snapshot is read for diffing.
+        # The yesterday snapshot represents the previously merged state of both accounts.
         cap = datetime(2026, 5, 12, 9, 30, tzinfo=_ET)
 
         def fake_games(steam_id):
@@ -187,12 +188,12 @@ class TestCollect:
             }[steam_id]
 
         def fake_load(date_key, steam_id):
-            if date_key != "2026-05-12":
+            # Only the primary account ("101") has a stored snapshot.
+            if date_key != "2026-05-12" or steam_id != "101":
                 return None
-            return {
-                "101": {"games": {"Counter-Strike 2": 1100, "Dota 2": 580}, "captured_at": cap.isoformat()},
-                "102": {"games": {"Counter-Strike 2": 400}, "captured_at": cap.isoformat()},
-            }[steam_id]
+            # Yesterday's snapshot is the previously merged state: CS2 total was 1500
+            # (1100 from account 101 + 400 from account 102), Dota was 580 (101 only).
+            return {"games": {"Counter-Strike 2": 1500, "Dota 2": 580}, "captured_at": cap.isoformat()}
 
         mock_games.side_effect = fake_games
         mock_load.side_effect = fake_load
@@ -204,11 +205,12 @@ class TestCollect:
         assert len(daily) == 1
         pt = daily[0]
         assert pt.person_id == "daksh"
-        # CS2: account 101 +200 min, account 102 +100 min = 300 min total
+        # Today merged: CS2=1800, Dota=600, Apex=200. Yesterday merged: CS2=1500, Dota=580.
+        # CS2: 1800 - 1500 = 300 min
         assert round(pt.games["Counter-Strike 2"], 4) == round(300 / 60, 4)
-        # Dota 2: only on account 101, +20 min
+        # Dota 2: 600 - 580 = 20 min
         assert round(pt.games["Dota 2"], 4) == round(20 / 60, 4)
-        # Apex: only on account 102, +200 min (new game, full playtime counts)
+        # Apex Legends: new game (prev=0), full 200 min counted
         assert round(pt.games["Apex Legends"], 4) == round(200 / 60, 4)
         assert mock_games.call_count == 2  # both accounts fetched
-        assert mock_save.call_count == 2   # snapshot saved for each account
+        assert mock_save.call_count == 1   # one merged snapshot, not two
