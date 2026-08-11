@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 
 
 def _steam_players():
-    # Roster rows tracked on Steam (those carrying a steam_id).
-    return [p for p in PLAYERS if p.get("steam_id")]
+    # Roster rows tracked on Steam (those carrying at least one steam_ids entry).
+    return [p for p in PLAYERS if p.get("steam_ids")]
 
 
 def _date_str(d):
@@ -94,45 +94,56 @@ def collect(now):
     weekly_ref_times = []  # captured_at of every Monday snapshot we diffed against
 
     for player in _steam_players():
-        steam_id = player["steam_id"]
+        steam_ids = player["steam_ids"]
         player_id = player["player_id"]
         name = player["name"]
 
-        games = get_owned_games(steam_id)
-        if games is None:
-            logger.warning(f"Skipping {name}: no games visible (profile may be private)")
-            continue
+        # Accumulate deltas across all of this player's accounts before producing
+        # one PlayerPlaytime. Games that appear on multiple accounts are summed.
+        all_daily_deltas = {}
+        all_weekly_deltas = {}
 
-        # Always persist today's snapshot — this is how the very first run bootstraps.
-        save_snapshot(today_key, steam_id, name, games, now_iso)
-        logger.debug(f"Saved snapshot for {name} ({steam_id}): {len(games)} games")
+        for steam_id in steam_ids:
+            games = get_owned_games(steam_id)
+            if games is None:
+                logger.warning(f"Skipping {name} ({steam_id}): no games visible (profile may be private)")
+                time.sleep(1)
+                continue
 
-        yesterday_snap = load_snapshot(yesterday_key, steam_id)
-        if yesterday_snap:
-            daily_ref_times.append(yesterday_snap.get("captured_at"))
-            deltas = _game_deltas(games, yesterday_snap.get("games", {}))
-            if deltas:
-                daily.append(_playtime_from_deltas(player_id, name, deltas))
-                logger.info(f"{name}: {sum(deltas.values()) / 60:.1f} hrs today ({len(deltas)} games)")
+            # Always persist today's snapshot — this is how the very first run bootstraps.
+            save_snapshot(today_key, steam_id, name, games, now_iso)
+            logger.debug(f"Saved snapshot for {name} ({steam_id}): {len(games)} games")
 
-        # Weekly delta vs this Monday's snapshot. On Mondays the week snapshot is the
-        # one we just wrote, so the delta is empty and the player is omitted.
-        week_snap = load_snapshot(week_start_key, steam_id)
-        if week_snap:
-            weekly_ref_times.append(week_snap.get("captured_at"))
-            week_deltas = _game_deltas(games, week_snap.get("games", {}))
-            if week_deltas:
-                weekly.append(_playtime_from_deltas(player_id, name, week_deltas))
-                logger.info(f"{name}: {sum(week_deltas.values()) / 60:.1f} hrs this week")
+            yesterday_snap = load_snapshot(yesterday_key, steam_id)
+            if yesterday_snap:
+                daily_ref_times.append(yesterday_snap.get("captured_at"))
+                for game, minutes in _game_deltas(games, yesterday_snap.get("games", {})).items():
+                    all_daily_deltas[game] = all_daily_deltas.get(game, 0) + minutes
 
-        # One sleep per player keeps us polite to Steam's API.
-        time.sleep(1)
+            # Weekly delta vs this Monday's snapshot. On Mondays the week snapshot is
+            # the one we just wrote, so the delta is empty and the player is omitted.
+            week_snap = load_snapshot(week_start_key, steam_id)
+            if week_snap:
+                weekly_ref_times.append(week_snap.get("captured_at"))
+                for game, minutes in _game_deltas(games, week_snap.get("games", {})).items():
+                    all_weekly_deltas[game] = all_weekly_deltas.get(game, 0) + minutes
+
+            time.sleep(1)
+
+        if all_daily_deltas:
+            daily.append(_playtime_from_deltas(player_id, name, all_daily_deltas))
+            logger.info(f"{name}: {sum(all_daily_deltas.values()) / 60:.1f} hrs today ({len(all_daily_deltas)} games)")
+
+        if all_weekly_deltas:
+            weekly.append(_playtime_from_deltas(player_id, name, all_weekly_deltas))
+            logger.info(f"{name}: {sum(all_weekly_deltas.values()) / 60:.1f} hrs this week")
 
     # Monday cleanup: drop old snapshots after computing (today's is preserved as the
     # anchor for the new week).
     if today.weekday() == 0:
         logger.info("Monday cleanup: deleting Steam snapshots before today")
         for player in _steam_players():
-            delete_snapshots_before(today_key, player["steam_id"])
+            for steam_id in player["steam_ids"]:
+                delete_snapshots_before(today_key, steam_id)
 
     return daily, weekly, _earliest(daily_ref_times), _earliest(weekly_ref_times)
