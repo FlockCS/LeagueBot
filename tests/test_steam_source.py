@@ -64,7 +64,7 @@ class TestCollect:
 
         mock_load.side_effect = fake_load
 
-        roster = [{"player_id": "donkey", "name": "Donkey", "steam_id": "100"}]
+        roster = [{"player_id": "donkey", "name": "Donkey", "steam_ids": ["100"]}]
         with patch("src.sources.steam.PLAYERS", roster):
             daily, weekly, daily_since, weekly_since = collect(WED)  # a Wednesday
 
@@ -101,7 +101,7 @@ class TestCollect:
         mock_games.return_value = {"Counter-Strike 2": 1000}
         mock_load.return_value = None
 
-        roster = [{"player_id": "donkey", "name": "Donkey", "steam_id": "100"}]
+        roster = [{"player_id": "donkey", "name": "Donkey", "steam_ids": ["100"]}]
         with patch("src.sources.steam.PLAYERS", roster):
             daily, weekly, daily_since, weekly_since = collect(WED)
 
@@ -118,7 +118,7 @@ class TestCollect:
         self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
     ):
         mock_games.return_value = None  # private profile
-        roster = [{"player_id": "donkey", "name": "Donkey", "steam_id": "100"}]
+        roster = [{"player_id": "donkey", "name": "Donkey", "steam_ids": ["100"]}]
         with patch("src.sources.steam.PLAYERS", roster):
             daily, weekly, daily_since, weekly_since = collect(WED)
 
@@ -137,11 +137,11 @@ class TestCollect:
         mock_games.return_value = {"Counter-Strike 2": 1000}
         mock_load.return_value = None
 
-        roster = [{"player_id": "donkey", "name": "Donkey", "steam_id": "100"}]
+        roster = [{"player_id": "donkey", "name": "Donkey", "steam_ids": ["100"]}]
         with patch("src.sources.steam.PLAYERS", roster):
             collect(MON)  # a Monday
 
-        mock_delete.assert_called_once_with("2026-05-11", "100")
+        mock_delete.assert_called_once_with("2026-05-11", "100")  # one steam_id → one call
 
     @patch("src.sources.steam.delete_snapshots_before")
     @patch("src.sources.steam.save_snapshot")
@@ -158,7 +158,7 @@ class TestCollect:
         )
         roster = [
             {"player_id": "kabir", "name": "Kabir", "riot": {"game_name": "x", "tag_line": "y"}},
-            {"player_id": "chris", "name": "Chris", "steam_id": "222"},
+            {"player_id": "chris", "name": "Chris", "steam_ids": ["222"]},
         ]
         with patch("src.sources.steam.PLAYERS", roster):
             daily, _, _, _ = collect(WED)
@@ -166,3 +166,77 @@ class TestCollect:
         names = {p.display_name for p in daily}
         assert names == {"Chris"}
         assert mock_games.call_count == 1  # only the Steam-tracked player fetched
+
+    @patch("src.sources.steam.delete_snapshots_before")
+    @patch("src.sources.steam.save_snapshot")
+    @patch("src.sources.steam.load_snapshot")
+    @patch("src.sources.steam.get_owned_games")
+    @patch("src.sources.steam.time.sleep")
+    def test_multi_account_deltas_are_combined(
+        self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
+    ):
+        # A player with two steam_ids should produce ONE PlayerPlaytime. Both accounts'
+        # games are merged before snapshotting, so only one snapshot is written (under
+        # the primary steam_id) and one reference snapshot is read for diffing.
+        # The yesterday snapshot represents the previously merged state of both accounts.
+        cap = datetime(2026, 5, 12, 9, 30, tzinfo=_ET)
+
+        def fake_games(steam_id):
+            return {
+                "101": {"Counter-Strike 2": 1300, "Dota 2": 600},
+                "102": {"Counter-Strike 2": 500, "Apex Legends": 200},
+            }[steam_id]
+
+        def fake_load(date_key, steam_id):
+            # Only the primary account ("101") has a stored snapshot.
+            if date_key != "2026-05-12" or steam_id != "101":
+                return None
+            # Yesterday's snapshot is the previously merged state: CS2 total was 1500
+            # (1100 from account 101 + 400 from account 102), Dota was 580 (101 only).
+            return {"games": {"Counter-Strike 2": 1500, "Dota 2": 580}, "captured_at": cap.isoformat()}
+
+        mock_games.side_effect = fake_games
+        mock_load.side_effect = fake_load
+
+        roster = [{"player_id": "daksh", "name": "Daksh", "steam_ids": ["101", "102"]}]
+        with patch("src.sources.steam.PLAYERS", roster):
+            daily, _, _, _ = collect(WED)
+
+        assert len(daily) == 1
+        pt = daily[0]
+        assert pt.person_id == "daksh"
+        # Today merged: CS2=1800, Dota=600, Apex=200. Yesterday merged: CS2=1500, Dota=580.
+        # CS2: 1800 - 1500 = 300 min
+        assert round(pt.games["Counter-Strike 2"], 4) == round(300 / 60, 4)
+        # Dota 2: 600 - 580 = 20 min
+        assert round(pt.games["Dota 2"], 4) == round(20 / 60, 4)
+        # Apex Legends: new game (prev=0), full 200 min counted
+        assert round(pt.games["Apex Legends"], 4) == round(200 / 60, 4)
+        assert mock_games.call_count == 2  # both accounts fetched
+        assert mock_save.call_count == 1   # one merged snapshot, not two
+
+    @patch("src.sources.steam.delete_snapshots_before")
+    @patch("src.sources.steam.save_snapshot")
+    @patch("src.sources.steam.load_snapshot")
+    @patch("src.sources.steam.get_owned_games")
+    @patch("src.sources.steam.time.sleep")
+    def test_partial_account_failure_skips_player(
+        self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
+    ):
+        # If any account is unreachable, the whole player is skipped rather than
+        # writing a partial snapshot. A partial merge would undercount today, then
+        # the next run's diff would overcount by the missing account's lifetime hours.
+        def fake_games(steam_id):
+            if steam_id == "101":
+                return {"Counter-Strike 2": 1300}
+            return None  # account 102 is private / unreachable
+
+        mock_games.side_effect = fake_games
+
+        roster = [{"player_id": "daksh", "name": "Daksh", "steam_ids": ["101", "102"]}]
+        with patch("src.sources.steam.PLAYERS", roster):
+            daily, weekly, _, _ = collect(WED)
+
+        assert daily == []
+        assert weekly == []
+        mock_save.assert_not_called()
