@@ -12,6 +12,8 @@ STEAM_OWNED_GAMES_URL = "https://api.steampowered.com/IPlayerService/GetOwnedGam
 # playtime table). A person's source handles are just fields on their row:
 #   steam_ids — list of SteamID64s; present if they're tracked on Steam (omit otherwise).
 #               Most players have one account; list more to merge all into one row.
+#               WARNING: the first entry is the DynamoDB snapshot key for this player.
+#               Never reorder or remove it — doing so orphans all existing snapshot history.
 #   riot      — {game_name, tag_line}; present if they're tracked on League (omit otherwise)
 # Both the Steam and Riot sources iterate this one list and emit playtime keyed by
 # player_id, so a person's Steam and League hours merge into ONE leaderboard row.

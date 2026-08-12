@@ -95,25 +95,29 @@ def collect(now):
 
     for player in _steam_players():
         steam_ids = player["steam_ids"]
-        primary_id = steam_ids[0]
+        primary_id = steam_ids[0]  # DynamoDB snapshot key — see PLAYERS comment in config.py
         player_id = player["player_id"]
         name = player["name"]
 
-        # Merge all accounts into one game map before snapshotting. This keeps
-        # DynamoDB at exactly one row per player per day regardless of how many
-        # Steam accounts they have, and the deletion logic stays a single call.
+        # Fetch all accounts and merge into one game map. We must have a complete
+        # picture before writing anything: a partial merge (one account missing)
+        # would undercount today's snapshot, and the next run would then diff the
+        # recovered account's full lifetime playtime as "one day's hours". So if
+        # any account is unreachable we skip the player entirely for this run.
         merged_games = {}
+        all_fetched = True
         for steam_id in steam_ids:
             games = get_owned_games(steam_id)
             if games is None:
-                logger.warning(f"Skipping {name} ({steam_id}): no games visible (profile may be private)")
-            else:
-                for game, minutes in games.items():
-                    merged_games[game] = merged_games.get(game, 0) + minutes
+                logger.warning(f"Skipping {name} ({steam_id}): no games visible — skipping all accounts to avoid partial snapshot")
+                all_fetched = False
+                time.sleep(1)
+                break
+            for game, minutes in games.items():
+                merged_games[game] = merged_games.get(game, 0) + minutes
             time.sleep(1)
 
-        if not merged_games:
-            logger.warning(f"No game data for {name}: all accounts private or unreachable")
+        if not all_fetched:
             continue
 
         # Always persist today's merged snapshot under the primary steam_id.

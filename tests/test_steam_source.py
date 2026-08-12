@@ -214,3 +214,29 @@ class TestCollect:
         assert round(pt.games["Apex Legends"], 4) == round(200 / 60, 4)
         assert mock_games.call_count == 2  # both accounts fetched
         assert mock_save.call_count == 1   # one merged snapshot, not two
+
+    @patch("src.sources.steam.delete_snapshots_before")
+    @patch("src.sources.steam.save_snapshot")
+    @patch("src.sources.steam.load_snapshot")
+    @patch("src.sources.steam.get_owned_games")
+    @patch("src.sources.steam.time.sleep")
+    def test_partial_account_failure_skips_player(
+        self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
+    ):
+        # If any account is unreachable, the whole player is skipped rather than
+        # writing a partial snapshot. A partial merge would undercount today, then
+        # the next run's diff would overcount by the missing account's lifetime hours.
+        def fake_games(steam_id):
+            if steam_id == "101":
+                return {"Counter-Strike 2": 1300}
+            return None  # account 102 is private / unreachable
+
+        mock_games.side_effect = fake_games
+
+        roster = [{"player_id": "daksh", "name": "Daksh", "steam_ids": ["101", "102"]}]
+        with patch("src.sources.steam.PLAYERS", roster):
+            daily, weekly, _, _ = collect(WED)
+
+        assert daily == []
+        assert weekly == []
+        mock_save.assert_not_called()
