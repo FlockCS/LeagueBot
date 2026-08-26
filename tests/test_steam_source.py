@@ -49,7 +49,8 @@ class TestCollect:
     def test_computes_daily_and_weekly_playtime(
         self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
     ):
-        mock_games.return_value = {"Counter-Strike 2": 1300, "Dota 2": 600}
+        # Snapshots keyed by appid ("730"=CS2, "570"=Dota 2) so game renames don't corrupt diffs.
+        mock_games.return_value = ({"730": 1300, "570": 600}, {"730": "Counter-Strike 2", "570": "Dota 2"})
 
         # Reference snapshots carry the real capture time; the window starts should
         # reflect those, not an assumed 24h.
@@ -58,8 +59,8 @@ class TestCollect:
 
         def fake_load(date_key, steam_id):
             return {
-                "2026-05-12": {"games": {"Counter-Strike 2": 1100, "Dota 2": 580}, "captured_at": yday_cap.isoformat()},
-                "2026-05-11": {"games": {"Counter-Strike 2": 1000}, "captured_at": mon_cap.isoformat()},
+                "2026-05-12": {"games": {"730": 1100, "570": 580}, "captured_at": yday_cap.isoformat()},
+                "2026-05-11": {"games": {"730": 1000}, "captured_at": mon_cap.isoformat()},
             }.get(date_key)
 
         mock_load.side_effect = fake_load
@@ -98,7 +99,7 @@ class TestCollect:
     def test_first_run_no_snapshots_skips_gracefully(
         self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
     ):
-        mock_games.return_value = {"Counter-Strike 2": 1000}
+        mock_games.return_value = ({"730": 1000}, {"730": "Counter-Strike 2"})
         mock_load.return_value = None
 
         roster = [{"player_id": "donkey", "name": "Donkey", "steam_id": "100"}]
@@ -134,7 +135,7 @@ class TestCollect:
     def test_monday_triggers_cleanup(
         self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
     ):
-        mock_games.return_value = {"Counter-Strike 2": 1000}
+        mock_games.return_value = ({"730": 1000}, {"730": "Counter-Strike 2"})
         mock_load.return_value = None
 
         roster = [{"player_id": "donkey", "name": "Donkey", "steam_id": "100"}]
@@ -152,7 +153,7 @@ class TestCollect:
         self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
     ):
         # A roster row with no steam_id must be ignored by the Steam source.
-        mock_games.return_value = {"Counter-Strike 2": 200}
+        mock_games.return_value = ({"730": 200}, {"730": "Counter-Strike 2"})
         mock_load.side_effect = lambda date_key, _: (
             {"games": {}} if date_key == "2026-05-12" else None
         )
