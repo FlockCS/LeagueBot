@@ -16,6 +16,23 @@ from src.sources import steam, riot
 
 logger = logging.getLogger(__name__)
 
+# No one plays more hours than the window actually contains. A row that exceeds
+# this is a data glitch (e.g. a snapshot keying bug, a clock issue) rather than
+# real playtime, so it's dropped from the board instead of showing an impossible
+# number — the same failure mode that motivated keying snapshots by appid.
+MAX_DAILY_HOURS = 24
+MAX_WEEKLY_HOURS = 24 * 7
+
+
+def _drop_implausible(by_person, max_hours, window):
+    for person_id, row in list(by_person.items()):
+        if row.total_hours > max_hours:
+            logger.warning(
+                f"Dropping {row.display_name} from {window}: {row.total_hours:.1f} hrs exceeds "
+                f"the {max_hours}h plausible max — likely a data glitch, not real playtime"
+            )
+            del by_person[person_id]
+
 
 def _merge_into(by_person, rows):
     for row in rows:
@@ -57,6 +74,9 @@ def build(now):
     _merge_into(daily_by_person, riot_daily)
     _merge_into(weekly_by_person, steam_weekly)
     _merge_into(weekly_by_person, riot_weekly)
+
+    _drop_implausible(daily_by_person, MAX_DAILY_HOURS, "daily")
+    _drop_implausible(weekly_by_person, MAX_WEEKLY_HOURS, "weekly")
 
     daily_rows = _sorted(daily_by_person)
     weekly_rows = _sorted(weekly_by_person)

@@ -101,6 +101,44 @@ class TestBuild:
         assert ws == weekly_since
         riot.collect.assert_called_once_with(NOW, daily_since)
 
+    def test_drops_daily_row_exceeding_24_hours(self):
+        # A single-source glitch (e.g. a bad diff) reporting >24h in a day is not
+        # real playtime — the row should be dropped rather than shown.
+        steam = _steam(
+            daily=[PlayerPlaytime("1", "Glitched", {"Game": 30.0}),
+                   PlayerPlaytime("2", "Normal", {"Game": 5.0})],
+            weekly=[],
+        )
+        with _patch(steam, _riot([], [])):
+            daily, _weekly, _ds, _ws = build(NOW)
+
+        assert [p.person_id for p in daily] == ["2"]
+
+    def test_drops_weekly_row_exceeding_168_hours(self):
+        steam = _steam(daily=[], weekly=[PlayerPlaytime("1", "Glitched", {"Game": 200.0})])
+        with _patch(steam, _riot([], [])):
+            _daily, weekly, _ds, _ws = build(NOW)
+
+        assert weekly == []
+
+    def test_drops_combined_total_exceeding_cap_even_if_each_source_is_plausible(self):
+        # Neither source alone looks implausible, but merged they exceed 24h/day —
+        # the cap must apply after merge, not per-source.
+        steam = _steam(daily=[PlayerPlaytime("1", "V", {"CS2": 15.0})], weekly=[])
+        riot = _riot(daily=[PlayerPlaytime("1", "V", {"League of Legends": 12.0})], weekly=[])
+
+        with _patch(steam, riot):
+            daily, _weekly, _ds, _ws = build(NOW)
+
+        assert daily == []
+
+    def test_plausible_high_total_is_kept(self):
+        steam = _steam(daily=[PlayerPlaytime("1", "V", {"CS2": 23.5})], weekly=[])
+        with _patch(steam, _riot([], [])):
+            daily, _weekly, _ds, _ws = build(NOW)
+
+        assert [p.person_id for p in daily] == ["1"]
+
     def test_falls_back_when_no_reference_snapshot(self):
         # With no Steam reference (daily_since=None), the daily window falls back to
         # 24h before now and Riot is queried over that.
