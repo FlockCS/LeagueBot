@@ -11,7 +11,7 @@ class TestHandler:
     def test_weekday_posts_daily_only(self, mock_build, mock_send):
         daily = [PlayerPlaytime("1", "Veesh", {"League of Legends": 4.0})]
         weekly = [PlayerPlaytime("1", "Veesh", {"League of Legends": 20.0})]
-        mock_build.return_value = (daily, weekly, None, None)
+        mock_build.return_value = (daily, weekly, None, None, False)
 
         result = handler({}, None)
 
@@ -28,7 +28,7 @@ class TestHandler:
     def test_sunday_posts_daily_and_weekly(self, mock_build, mock_send):
         daily = [PlayerPlaytime("1", "Veesh", {"League of Legends": 4.0})]
         weekly = [PlayerPlaytime("1", "Veesh", {"League of Legends": 20.0})]
-        mock_build.return_value = (daily, weekly, None, None)
+        mock_build.return_value = (daily, weekly, None, None, False)
 
         handler({}, None)
 
@@ -40,7 +40,7 @@ class TestHandler:
     @patch("src.handler.send_leaderboard")
     @patch("src.handler.build")
     def test_skips_daily_post_when_empty(self, mock_build, mock_send):
-        mock_build.return_value = ([], [], None, None)
+        mock_build.return_value = ([], [], None, None, False)
         handler({}, None)
         mock_send.assert_not_called()
 
@@ -49,8 +49,24 @@ class TestHandler:
     @patch("src.handler.build")
     def test_sunday_with_empty_weekly_skips_weekly(self, mock_build, mock_send):
         daily = [PlayerPlaytime("1", "Veesh", {"League of Legends": 4.0})]
-        mock_build.return_value = (daily, [], None, None)
+        mock_build.return_value = (daily, [], None, None, False)
         handler({}, None)
 
         assert mock_send.call_count == 1
         assert mock_send.call_args[0][1] == "daily"
+
+    @freeze_time("2026-05-13 14:00:00")
+    @patch("src.handler.send_leaderboard")
+    @patch("src.handler.send_notice")
+    @patch("src.handler.build")
+    def test_reset_day_posts_notice_instead_of_leaderboard(self, mock_build, mock_notice, mock_send):
+        # No Steam baseline (store wiped/migrated): a misleading League-only board must not post.
+        daily = [PlayerPlaytime("1", "Veesh", {"League of Legends": 4.0})]
+        mock_build.return_value = (daily, [], None, None, True)
+
+        result = handler({}, None)
+
+        mock_notice.assert_called_once()
+        assert "Fixing things up" in mock_notice.call_args[0][0]
+        mock_send.assert_not_called()
+        assert result["statusCode"] == 200

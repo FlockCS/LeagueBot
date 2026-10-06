@@ -11,6 +11,7 @@
 
 import logging
 from datetime import timedelta
+from src.config import PLAYERS
 from src.models import PlayerPlaytime
 from src.sources import steam, riot
 
@@ -56,9 +57,15 @@ def build(now):
     # `now` is the posting-time datetime. Steam runs first and reports the real start
     # of each window (the capture time of the snapshot it diffed against); Riot is then
     # queried over that same span so both sources agree. Returns
-    #   (daily_rows, weekly_rows, daily_start, weekly_start)
-    # where the *_start datetimes are the true window starts used for the labels.
+    #   (daily_rows, weekly_rows, daily_start, weekly_start, resetting)
+    # where the *_start datetimes are the true window starts used for the labels, and
+    # `resetting` is True when Steam had no baseline to diff against (see below).
     steam_daily, steam_weekly, daily_since, weekly_since = steam.collect(now)
+
+    # Steam-tracked players exist but none has a reference snapshot: the snapshot store
+    # was just wiped or migrated, so the board would be League-only and misstate Steam
+    # playtime. The handler announces a rebuild instead of posting it.
+    resetting = any(p.get("steam_ids") for p in PLAYERS) and daily_since is None
 
     # Fall back to a nominal window only when there's no reference snapshot to anchor
     # to (e.g. the first run after this change, or no Steam players): daily -> 24h ago,
@@ -81,4 +88,4 @@ def build(now):
     daily_rows = _sorted(daily_by_person)
     weekly_rows = _sorted(weekly_by_person)
     logger.info(f"Unified leaderboard: {len(daily_rows)} daily, {len(weekly_rows)} weekly")
-    return daily_rows, weekly_rows, daily_start, weekly_start
+    return daily_rows, weekly_rows, daily_start, weekly_start, resetting
