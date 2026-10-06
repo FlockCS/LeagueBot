@@ -49,7 +49,8 @@ class TestCollect:
     def test_computes_daily_and_weekly_playtime(
         self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
     ):
-        mock_games.return_value = {"Counter-Strike 2": 1300, "Dota 2": 600}
+        # Snapshots keyed by appid ("730"=CS2, "570"=Dota 2) so game renames don't corrupt diffs.
+        mock_games.return_value = ({"730": 1300, "570": 600}, {"730": "Counter-Strike 2", "570": "Dota 2"})
 
         # Reference snapshots carry the real capture time; the window starts should
         # reflect those, not an assumed 24h.
@@ -58,8 +59,8 @@ class TestCollect:
 
         def fake_load(date_key, steam_id):
             return {
-                "2026-05-12": {"games": {"Counter-Strike 2": 1100, "Dota 2": 580}, "captured_at": yday_cap.isoformat()},
-                "2026-05-11": {"games": {"Counter-Strike 2": 1000}, "captured_at": mon_cap.isoformat()},
+                "2026-05-12": {"games": {"730": 1100, "570": 580}, "captured_at": yday_cap.isoformat()},
+                "2026-05-11": {"games": {"730": 1000}, "captured_at": mon_cap.isoformat()},
             }.get(date_key)
 
         mock_load.side_effect = fake_load
@@ -98,7 +99,7 @@ class TestCollect:
     def test_first_run_no_snapshots_skips_gracefully(
         self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
     ):
-        mock_games.return_value = {"Counter-Strike 2": 1000}
+        mock_games.return_value = ({"730": 1000}, {"730": "Counter-Strike 2"})
         mock_load.return_value = None
 
         roster = [{"player_id": "donkey", "name": "Donkey", "steam_ids": ["100"]}]
@@ -134,7 +135,7 @@ class TestCollect:
     def test_monday_triggers_cleanup(
         self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
     ):
-        mock_games.return_value = {"Counter-Strike 2": 1000}
+        mock_games.return_value = ({"730": 1000}, {"730": "Counter-Strike 2"})
         mock_load.return_value = None
 
         roster = [{"player_id": "donkey", "name": "Donkey", "steam_ids": ["100"]}]
@@ -152,7 +153,7 @@ class TestCollect:
         self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
     ):
         # A roster row with no steam_id must be ignored by the Steam source.
-        mock_games.return_value = {"Counter-Strike 2": 200}
+        mock_games.return_value = ({"730": 200}, {"730": "Counter-Strike 2"})
         mock_load.side_effect = lambda date_key, _: (
             {"games": {}} if date_key == "2026-05-12" else None
         )
@@ -183,8 +184,8 @@ class TestCollect:
 
         def fake_games(steam_id):
             return {
-                "101": {"Counter-Strike 2": 1300, "Dota 2": 600},
-                "102": {"Counter-Strike 2": 500, "Apex Legends": 200},
+                "101": ({"730": 1300, "570": 600}, {"730": "Counter-Strike 2", "570": "Dota 2"}),
+                "102": ({"730": 500, "440": 200}, {"730": "Counter-Strike 2", "440": "Apex Legends"}),
             }[steam_id]
 
         def fake_load(date_key, steam_id):
@@ -193,7 +194,7 @@ class TestCollect:
                 return None
             # Yesterday's snapshot is the previously merged state: CS2 total was 1500
             # (1100 from account 101 + 400 from account 102), Dota was 580 (101 only).
-            return {"games": {"Counter-Strike 2": 1500, "Dota 2": 580}, "captured_at": cap.isoformat()}
+            return {"games": {"730": 1500, "570": 580}, "captured_at": cap.isoformat()}
 
         mock_games.side_effect = fake_games
         mock_load.side_effect = fake_load
@@ -228,7 +229,7 @@ class TestCollect:
         # the next run's diff would overcount by the missing account's lifetime hours.
         def fake_games(steam_id):
             if steam_id == "101":
-                return {"Counter-Strike 2": 1300}
+                return ({"730": 1300}, {"730": "Counter-Strike 2"})
             return None  # account 102 is private / unreachable
 
         mock_games.side_effect = fake_games

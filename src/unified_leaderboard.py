@@ -11,10 +11,28 @@
 
 import logging
 from datetime import timedelta
+from src.config import PLAYERS
 from src.models import PlayerPlaytime
 from src.sources import steam, riot
 
 logger = logging.getLogger(__name__)
+
+# No one plays more hours than the window actually contains. A row that exceeds
+# this is a data glitch (e.g. a snapshot keying bug, a clock issue) rather than
+# real playtime, so it's dropped from the board instead of showing an impossible
+# number — the same failure mode that motivated keying snapshots by appid.
+MAX_DAILY_HOURS = 24
+MAX_WEEKLY_HOURS = 24 * 7
+
+
+def _drop_implausible(by_person, max_hours, window):
+    for person_id, row in list(by_person.items()):
+        if row.total_hours > max_hours:
+            logger.warning(
+                f"Dropping {row.display_name} from {window}: {row.total_hours:.1f} hrs exceeds "
+                f"the {max_hours}h plausible max — likely a data glitch, not real playtime"
+            )
+            del by_person[person_id]
 
 
 def _merge_into(by_person, rows):
@@ -39,9 +57,15 @@ def build(now):
     # `now` is the posting-time datetime. Steam runs first and reports the real start
     # of each window (the capture time of the snapshot it diffed against); Riot is then
     # queried over that same span so both sources agree. Returns
-    #   (daily_rows, weekly_rows, daily_start, weekly_start)
-    # where the *_start datetimes are the true window starts used for the labels.
+    #   (daily_rows, weekly_rows, daily_start, weekly_start, resetting)
+    # where the *_start datetimes are the true window starts used for the labels, and
+    # `resetting` is True when Steam had no baseline to diff against (see below).
     steam_daily, steam_weekly, daily_since, weekly_since = steam.collect(now)
+
+    # Steam-tracked players exist but none has a reference snapshot: the snapshot store
+    # was just wiped or migrated, so the board would be League-only and misstate Steam
+    # playtime. The handler announces a rebuild instead of posting it.
+    resetting = any(p.get("steam_ids") for p in PLAYERS) and daily_since is None
 
     # Fall back to a nominal window only when there's no reference snapshot to anchor
     # to (e.g. the first run after this change, or no Steam players): daily -> 24h ago,
@@ -58,7 +82,10 @@ def build(now):
     _merge_into(weekly_by_person, steam_weekly)
     _merge_into(weekly_by_person, riot_weekly)
 
+    _drop_implausible(daily_by_person, MAX_DAILY_HOURS, "daily")
+    _drop_implausible(weekly_by_person, MAX_WEEKLY_HOURS, "weekly")
+
     daily_rows = _sorted(daily_by_person)
     weekly_rows = _sorted(weekly_by_person)
     logger.info(f"Unified leaderboard: {len(daily_rows)} daily, {len(weekly_rows)} weekly")
-    return daily_rows, weekly_rows, daily_start, weekly_start
+    return daily_rows, weekly_rows, daily_start, weekly_start, resetting
