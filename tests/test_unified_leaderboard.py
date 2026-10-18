@@ -166,3 +166,14 @@ class TestBuild:
 
         assert ds == NOW - timedelta(days=1)
         riot.collect.assert_called_once_with(NOW, NOW - timedelta(days=1))
+
+    def test_weekly_falls_back_to_previous_sunday(self):
+        # With no Steam weekly reference, the recap window falls back to the previous
+        # Sunday (Sunday-to-Sunday), not Monday. On Sunday itself that's 7 days back.
+        sun = datetime(2026, 5, 17, 10, 0, tzinfo=_ET)
+        for now, expected in [(NOW, datetime(2026, 5, 10, 10, 0, tzinfo=_ET)),
+                              (sun, datetime(2026, 5, 10, 10, 0, tzinfo=_ET))]:
+            steam = _steam(daily=[], weekly=[], daily_since=None, weekly_since=None)
+            with _patch(steam, _riot([], [])):
+                *_, ws, _resetting = build(now)
+            assert ws == expected

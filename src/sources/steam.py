@@ -1,7 +1,7 @@
 # Steam playtime source. Steam's API only exposes LIFETIME per-game totals, so we
 # store one snapshot per player per day (src/steam_snapshot.py) and diff:
 #   daily  = today's totals - yesterday's snapshot
-#   weekly = today's totals - this Monday's snapshot
+#   weekly = today's totals - the previous Sunday's snapshot
 # Each diff becomes a PlayerPlaytime keyed by the person's canonical player_id, so
 # the unified aggregator can merge it with the same person's League playtime.
 #
@@ -35,7 +35,10 @@ def _date_str(d):
 
 
 def _week_start(today):
-    return today - timedelta(days=today.weekday())
+    # The previous Sunday (7 days back when today is Sunday). The recap posts on
+    # Sunday, so diffing against last Sunday's snapshot covers the full Sunday-to-
+    # Sunday week; anchoring on Monday silently dropped the Sunday -> Monday day.
+    return today - timedelta(days=(today.weekday() + 1) % 7 or 7)
 
 
 def _game_deltas(today_games, yesterday_games):
@@ -70,28 +73,41 @@ def _earliest(captured_ats):
     return min(times) if times else None
 
 
+def _week_reference(today, steam_id):
+    # The snapshot the weekly delta diffs against: the previous Sunday's, or, if that
+    # one is missing (a failed run, or the first week after the anchor moved from
+    # Monday), the earliest snapshot after it. Its captured_at labels the window, so a
+    # fallback shows up as a shorter week rather than being misreported. Never returns
+    # today's snapshot (that would make the delta empty).
+    day = _week_start(today)
+    while day < today:
+        snap = load_snapshot(_date_str(day), steam_id)
+        if snap:
+            return snap
+        day += timedelta(days=1)
+    return None
+
+
 def collect(now):
     # Single pass over every Steam-tracked player: fetch, snapshot, and compute both
     # the daily and weekly delta in one loop so we only hit the Steam API once per run.
     # `now` is the posting-time datetime; today's snapshot is taken now and diffed
-    # against the reference snapshot (yesterday's for daily, Monday's for weekly).
+    # against the reference snapshot (yesterday's for daily, last Sunday's for weekly).
     #
     # Returns (daily, weekly, daily_since, weekly_since) where the *_since values are
     # the actual capture times of the reference snapshots — the true window starts —
     # or None if those snapshots predate captured_at (first run after this change).
     today = now.date()
     yesterday = today - timedelta(days=1)
-    week_start = _week_start(today)
     today_key = _date_str(today)
     yesterday_key = _date_str(yesterday)
-    week_start_key = _date_str(week_start)
     now_iso = now.isoformat()
 
     logger.info(f"Collecting Steam playtime for {today}")
     daily = []
     weekly = []
     daily_ref_times = []   # captured_at of every yesterday snapshot we diffed against
-    weekly_ref_times = []  # captured_at of every Monday snapshot we diffed against
+    weekly_ref_times = []  # captured_at of every week-start snapshot we diffed against
 
     for player in _steam_players():
         steam_ids = player["steam_ids"]
@@ -135,9 +151,8 @@ def collect(now):
                 daily.append(_playtime_from_deltas(player_id, name, deltas, merged_names))
                 logger.info(f"{name}: {sum(deltas.values()) / 60:.1f} hrs today ({len(deltas)} games)")
 
-        # Weekly delta vs this Monday's snapshot. On Mondays the week snapshot is the
-        # one we just wrote, so the delta is empty and the player is omitted.
-        week_snap = load_snapshot(week_start_key, primary_id)
+        # Weekly delta vs the previous Sunday's snapshot (see _week_reference).
+        week_snap = _week_reference(today, primary_id)
         if week_snap:
             weekly_ref_times.append(week_snap.get("captured_at"))
             week_deltas = _game_deltas(merged_games, week_snap.get("games", {}))
@@ -145,11 +160,11 @@ def collect(now):
                 weekly.append(_playtime_from_deltas(player_id, name, week_deltas, merged_names))
                 logger.info(f"{name}: {sum(week_deltas.values()) / 60:.1f} hrs this week")
 
-    # Monday cleanup: drop old snapshots after computing (today's is preserved as the
-    # anchor for the new week). One call per player — the merged snapshot lives under
-    # the primary steam_id.
-    if today.weekday() == 0:
-        logger.info("Monday cleanup: deleting Steam snapshots before today")
+    # Sunday cleanup: once the recap's delta is computed, drop older snapshots
+    # (today's is preserved as the anchor for the new week). One call per player — the
+    # merged snapshot lives under the primary steam_id.
+    if today.weekday() == 6:
+        logger.info("Sunday cleanup: deleting Steam snapshots before today")
         for player in _steam_players():
             delete_snapshots_before(today_key, player["steam_ids"][0])
 

@@ -69,9 +69,9 @@ def build(now):
 
     # Fall back to a nominal window only when there's no reference snapshot to anchor
     # to (e.g. the first run after this change, or no Steam players): daily -> 24h ago,
-    # weekly -> this Monday at the current time.
+    # weekly -> the previous Sunday at the current time (the recap is Sunday-to-Sunday).
     daily_start = daily_since or (now - timedelta(days=1))
-    weekly_start = weekly_since or (now - timedelta(days=now.weekday()))
+    weekly_start = weekly_since or (now - timedelta(days=(now.weekday() + 1) % 7 or 7))
 
     riot_daily, riot_weekly = riot.collect(now, daily_start)
 

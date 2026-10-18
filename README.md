@@ -18,7 +18,7 @@ Each source derives period totals differently but produces the same normalized s
 (`src/models.py::PlayerPlaytime`):
 
 - **Steam** only exposes lifetime per-game totals, so we store a daily snapshot in
-  DynamoDB and diff it (today vs. yesterday for daily, today vs. Monday for weekly).
+  DynamoDB and diff it (today vs. yesterday for daily, today vs. the previous Sunday for weekly).
 - **Riot** exposes exact match durations for a time window, so daily is a live query;
   each day's computed hours are persisted so the weekly recap sums the week instead
   of re-querying Riot (which would exceed the dev-key rate limit / Lambda timeout).
