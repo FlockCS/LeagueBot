@@ -40,17 +40,20 @@ class TestGetOwnedGames:
     @patch("src.steam_api.requests.get")
     def test_success_and_filters_zero_playtime(self, mock_get):
         # Games with 0 playtime should be excluded to keep DynamoDB items small.
+        # Return is (playtime_by_appid, names_by_appid) — keyed by appid so diffs
+        # survive game renames on the Steam store.
         mock_get.return_value = MagicMock(
             status_code=200,
             json=lambda: {"response": {"games": [
-                {"name": "Counter-Strike 2", "playtime_forever": 1234},
-                {"name": "Unplayed Game",    "playtime_forever": 0},
-                {"name": "Dota 2",           "playtime_forever": 500},
+                {"appid": 730,  "name": "Counter-Strike 2", "playtime_forever": 1234},
+                {"appid": 9999, "name": "Unplayed Game",    "playtime_forever": 0},
+                {"appid": 570,  "name": "Dota 2",           "playtime_forever": 500},
             ]}},
         )
-        result = get_owned_games("76561198000000000")
-        assert result == {"Counter-Strike 2": 1234, "Dota 2": 500}
-        assert "Unplayed Game" not in result
+        playtime, names = get_owned_games("76561198000000000")
+        assert playtime == {"730": 1234, "570": 500}
+        assert names == {"730": "Counter-Strike 2", "570": "Dota 2"}
+        assert "9999" not in playtime
 
     @patch("src.steam_api.requests.get")
     def test_private_profile_returns_none(self, mock_get):

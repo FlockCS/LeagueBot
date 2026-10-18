@@ -51,12 +51,12 @@ def _game_deltas(today_games, yesterday_games):
     return deltas
 
 
-def _playtime_from_deltas(player_id, name, deltas):
-    # Convert a {game: minutes} delta map into a PlayerPlaytime with hours.
+def _playtime_from_deltas(player_id, name, appid_deltas, appid_names):
+    # Convert a {appid: minutes} delta map into a PlayerPlaytime with display names.
     return PlayerPlaytime(
         person_id=player_id,
         display_name=name,
-        games={g: m / 60 for g, m in deltas.items()},
+        games={appid_names.get(appid, f"appid_{appid}"): m / 60 for appid, m in appid_deltas.items()},
     )
 
 
@@ -105,16 +105,19 @@ def collect(now):
         # recovered account's full lifetime playtime as "one day's hours". So if
         # any account is unreachable we skip the player entirely for this run.
         merged_games = {}
+        merged_names = {}
         all_fetched = True
         for steam_id in steam_ids:
-            games = get_owned_games(steam_id)
-            if games is None:
+            result = get_owned_games(steam_id)
+            if result is None:
                 logger.warning(f"Skipping {name} ({steam_id}): no games visible — skipping all accounts to avoid partial snapshot")
                 all_fetched = False
                 time.sleep(1)
                 break
-            for game, minutes in games.items():
-                merged_games[game] = merged_games.get(game, 0) + minutes
+            games, names = result
+            for appid, minutes in games.items():
+                merged_games[appid] = merged_games.get(appid, 0) + minutes
+            merged_names.update(names)
             time.sleep(1)
 
         if not all_fetched:
@@ -129,7 +132,7 @@ def collect(now):
             daily_ref_times.append(yesterday_snap.get("captured_at"))
             deltas = _game_deltas(merged_games, yesterday_snap.get("games", {}))
             if deltas:
-                daily.append(_playtime_from_deltas(player_id, name, deltas))
+                daily.append(_playtime_from_deltas(player_id, name, deltas, merged_names))
                 logger.info(f"{name}: {sum(deltas.values()) / 60:.1f} hrs today ({len(deltas)} games)")
 
         # Weekly delta vs this Monday's snapshot. On Mondays the week snapshot is the
@@ -139,7 +142,7 @@ def collect(now):
             weekly_ref_times.append(week_snap.get("captured_at"))
             week_deltas = _game_deltas(merged_games, week_snap.get("games", {}))
             if week_deltas:
-                weekly.append(_playtime_from_deltas(player_id, name, week_deltas))
+                weekly.append(_playtime_from_deltas(player_id, name, week_deltas, merged_names))
                 logger.info(f"{name}: {sum(week_deltas.values()) / 60:.1f} hrs this week")
 
     # Monday cleanup: drop old snapshots after computing (today's is preserved as the

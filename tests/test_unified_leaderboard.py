@@ -39,7 +39,7 @@ class TestBuild:
         )
 
         with _patch(steam, riot):
-            daily, _weekly, _ds, _ws = build(NOW)
+            daily, _weekly, _ds, _ws, _resetting = build(NOW)
 
         # Veesh's League + Steam hours collapse into one row, sorted to the top.
         assert daily[0].person_id == "1"
@@ -56,7 +56,7 @@ class TestBuild:
             weekly=[],
         )
         with _patch(steam, _riot([], [])):
-            daily, _weekly, _ds, _ws = build(NOW)
+            daily, _weekly, _ds, _ws, _resetting = build(NOW)
 
         assert [p.display_name for p in daily] == ["B", "C", "A"]
 
@@ -81,7 +81,7 @@ class TestBuild:
             weekly=[PlayerPlaytime("1", "V", {"League of Legends": 5.0})],
         )
         with _patch(steam, riot):
-            daily, weekly, _ds, _ws = build(NOW)
+            daily, weekly, _ds, _ws, _resetting = build(NOW)
 
         assert round(daily[0].total_hours, 2) == 1.0
         assert round(weekly[0].total_hours, 2) == 15.0
@@ -95,11 +95,65 @@ class TestBuild:
         riot = _riot([], [])
 
         with _patch(steam, riot):
-            _daily, _weekly, ds, ws = build(NOW)
+            _daily, _weekly, ds, ws, _resetting = build(NOW)
 
         assert ds == daily_since
         assert ws == weekly_since
         riot.collect.assert_called_once_with(NOW, daily_since)
+
+    def test_drops_daily_row_exceeding_24_hours(self):
+        # A single-source glitch (e.g. a bad diff) reporting >24h in a day is not
+        # real playtime — the row should be dropped rather than shown.
+        steam = _steam(
+            daily=[PlayerPlaytime("1", "Glitched", {"Game": 30.0}),
+                   PlayerPlaytime("2", "Normal", {"Game": 5.0})],
+            weekly=[],
+        )
+        with _patch(steam, _riot([], [])):
+            daily, _weekly, _ds, _ws, _resetting = build(NOW)
+
+        assert [p.person_id for p in daily] == ["2"]
+
+    def test_drops_weekly_row_exceeding_168_hours(self):
+        steam = _steam(daily=[], weekly=[PlayerPlaytime("1", "Glitched", {"Game": 200.0})])
+        with _patch(steam, _riot([], [])):
+            _daily, weekly, _ds, _ws, _resetting = build(NOW)
+
+        assert weekly == []
+
+    def test_drops_combined_total_exceeding_cap_even_if_each_source_is_plausible(self):
+        # Neither source alone looks implausible, but merged they exceed 24h/day —
+        # the cap must apply after merge, not per-source.
+        steam = _steam(daily=[PlayerPlaytime("1", "V", {"CS2": 15.0})], weekly=[])
+        riot = _riot(daily=[PlayerPlaytime("1", "V", {"League of Legends": 12.0})], weekly=[])
+
+        with _patch(steam, riot):
+            daily, _weekly, _ds, _ws, _resetting = build(NOW)
+
+        assert daily == []
+
+    def test_plausible_high_total_is_kept(self):
+        steam = _steam(daily=[PlayerPlaytime("1", "V", {"CS2": 23.5})], weekly=[])
+        with _patch(steam, _riot([], [])):
+            daily, _weekly, _ds, _ws, _resetting = build(NOW)
+
+        assert [p.person_id for p in daily] == ["1"]
+
+    def test_flags_resetting_when_steam_has_no_baseline(self):
+        # Steam-tracked roster but no yesterday snapshot for anyone -> reset/migration day.
+        steam = _steam(daily=[], weekly=[], daily_since=None, weekly_since=None)
+        with _patch(steam, _riot([], [])):
+            *_, resetting = build(NOW)
+
+        assert resetting is True
+
+    def test_not_resetting_when_baseline_exists(self):
+        cap = datetime(2026, 5, 12, 9, 30, tzinfo=_ET)
+        steam = _steam(daily=[], weekly=[], daily_since=cap, weekly_since=cap)
+        with _patch(steam, _riot([], [])):
+            *_, resetting = build(NOW)
+
+        assert resetting is False
 
     def test_falls_back_when_no_reference_snapshot(self):
         # With no Steam reference (daily_since=None), the daily window falls back to
@@ -108,7 +162,7 @@ class TestBuild:
         riot = _riot([], [])
 
         with _patch(steam, riot):
-            _daily, _weekly, ds, _ws = build(NOW)
+            _daily, _weekly, ds, _ws, _resetting = build(NOW)
 
         assert ds == NOW - timedelta(days=1)
         riot.collect.assert_called_once_with(NOW, NOW - timedelta(days=1))

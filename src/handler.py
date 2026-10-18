@@ -11,7 +11,12 @@ logging.getLogger().setLevel(logging.INFO)
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from src.unified_leaderboard import build
-from src.discord import send_leaderboard
+from src.discord import send_leaderboard, send_notice
+
+RESET_NOTICE = (
+    "\U0001f527 Fixing things up \u2014 we're rebuilding playtime baselines after a system update. "
+    "Rankings resume tomorrow."  # 🔧
+)
 
 
 def handler(event, context):
@@ -22,7 +27,13 @@ def handler(event, context):
 
     # One collection pass across all sources yields both merged leaderboards plus the
     # true start of each window (measured from the reference snapshot, not assumed).
-    daily, weekly, daily_start, weekly_start = build(now)
+    daily, weekly, daily_start, weekly_start, resetting = build(now)
+
+    # On a snapshot reset/migration there's no baseline to diff Steam against, so any
+    # board would misstate playtime. Say so once instead of posting a misleading ranking.
+    if resetting:
+        send_notice(RESET_NOTICE)
+        return {"statusCode": 200, "body": "Baseline reset; notice posted"}
 
     # Daily leaderboard posts every day (skip if nobody played).
     if daily:

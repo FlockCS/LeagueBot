@@ -38,13 +38,15 @@ def get_player_status(steam_id):
 
 
 def get_owned_games(steam_id):
-    # Returns {game_name: lifetime_minutes} for every game the player has actually
-    # played. Steam's API only gives lifetime totals — we compute "played today" by
-    # diffing today's totals against yesterday's snapshot (see steam_leaderboard.py).
+    # Returns ({appid_str: lifetime_minutes}, {appid_str: display_name}), or None if
+    # the profile is private or the request fails. Keyed by appid (not name) so diffs
+    # survive game renames on the Steam store — appids are permanent, names are not.
+    # (A rename like "The Witcher 3: Wild Hunt" → "...Complete Edition" would otherwise
+    # show the game's full lifetime hours as one day's playtime on the rename date.)
     res = requests.get(STEAM_OWNED_GAMES_URL, params={
         "key": _api_key,
         "steamid": steam_id,
-        "include_appinfo": 1,             # Required to get the game's name (not just appid).
+        "include_appinfo": 1,             # Required to get the game's name alongside appid.
         "include_played_free_games": 1,   # Counts free-to-play games like CS2, Dota 2.
         "format": "json",
     })
@@ -60,14 +62,14 @@ def get_owned_games(steam_id):
         return None
 
     # Filter out games with 0 playtime to keep DynamoDB items small.
-    result = {}
+    playtime = {}
+    names = {}
     for g in games:
         minutes = g.get("playtime_forever", 0)
         if minutes <= 0:
             continue
-        # Fall back to a synthetic name if Steam doesn't return one — `or`
-        # short-circuits so we only build the appid string when name is missing.
-        name = g.get("name") or f"appid_{g.get('appid', 'unknown')}"
-        result[name] = minutes
-    logger.debug(f"Fetched {len(result)} games for {steam_id}")
-    return result
+        appid = str(g["appid"])
+        names[appid] = g.get("name") or f"appid_{appid}"
+        playtime[appid] = minutes
+    logger.debug(f"Fetched {len(playtime)} games for {steam_id}")
+    return playtime, names

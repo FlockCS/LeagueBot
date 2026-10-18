@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from unittest.mock import patch, MagicMock
-from src.discord import send_leaderboard
+from src.discord import send_leaderboard, send_notice
 from src.models import PlayerPlaytime
 
 _ET = ZoneInfo("America/New_York")
@@ -56,3 +56,12 @@ class TestSendLeaderboard:
     def test_empty_rows_skips_post(self, mock_post):
         send_leaderboard([], "daily", DAILY_START, WED)
         mock_post.assert_not_called()
+
+
+class TestSendNotice:
+    @patch("src.discord.requests.post")
+    def test_posts_plain_message_without_leaderboard(self, mock_post):
+        mock_post.return_value = MagicMock(raise_for_status=lambda: None)
+        send_notice("Fixing things up")
+
+        assert mock_post.call_args[1]["json"] == {"content": "Fixing things up"}

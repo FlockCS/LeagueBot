@@ -40,6 +40,16 @@ def send_leaderboard(rows, period, start, now):
             message += f"   • {game} — {hours:.1f} hrs\n"
         message += "\n"
 
-    res = requests.post(_webhook_url, json={"content": message})
-    res.raise_for_status()
+    _post(message)
     logger.info(f"{period.capitalize()} leaderboard posted to Discord")
+
+
+def send_notice(message):
+    # Plain announcement with no leaderboard (e.g. a snapshot reset day).
+    _post(message)
+    logger.info("Notice posted to Discord")
+
+
+def _post(content):
+    res = requests.post(_webhook_url, json={"content": content})
+    res.raise_for_status()
