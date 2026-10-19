@@ -70,6 +70,9 @@ def _daily(now, window_start):
 def _weekly(now):
     # Sum each player's persisted daily records from this Monday forward. Missing
     # days simply contribute nothing (graceful bootstrap over the first week).
+    # Starting at Monday is correct here (unlike Steam's snapshot anchor): each record
+    # is keyed by its posting day and covers the span *ending* then, so Monday's
+    # record holds Sunday -> Monday and the Mon..Sun records span Sunday to Sunday.
     today = now.date()
     week_start = _week_start(today)
     weekly = []

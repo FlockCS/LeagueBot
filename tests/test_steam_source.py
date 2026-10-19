@@ -6,6 +6,7 @@ from src.sources.steam import _game_deltas, _week_start, collect
 _ET = ZoneInfo("America/New_York")
 WED = datetime(2026, 5, 13, 10, 0, tzinfo=_ET)   # Wednesday 10 AM ET
 MON = datetime(2026, 5, 11, 10, 0, tzinfo=_ET)   # Monday 10 AM ET
+SUN = datetime(2026, 5, 17, 10, 0, tzinfo=_ET)   # Sunday 10 AM ET (recap day)
 
 
 class TestGameDeltas:
@@ -30,14 +31,18 @@ class TestGameDeltas:
 
 
 class TestWeekStart:
-    def test_wednesday_returns_previous_monday(self):
-        assert _week_start(date(2026, 5, 13)) == date(2026, 5, 11)
+    def test_wednesday_returns_previous_sunday(self):
+        assert _week_start(date(2026, 5, 13)) == date(2026, 5, 10)
 
-    def test_monday_returns_itself(self):
-        assert _week_start(date(2026, 5, 11)) == date(2026, 5, 11)
+    def test_monday_returns_yesterday(self):
+        assert _week_start(date(2026, 5, 11)) == date(2026, 5, 10)
 
-    def test_sunday_returns_monday_of_same_week(self):
-        assert _week_start(date(2026, 5, 17)) == date(2026, 5, 11)
+    def test_saturday_returns_previous_sunday(self):
+        assert _week_start(date(2026, 5, 16)) == date(2026, 5, 10)
+
+    def test_sunday_returns_previous_sunday_not_itself(self):
+        # The recap runs on Sunday and must cover the full Sunday-to-Sunday week.
+        assert _week_start(date(2026, 5, 17)) == date(2026, 5, 10)
 
 
 class TestCollect:
@@ -55,12 +60,12 @@ class TestCollect:
         # Reference snapshots carry the real capture time; the window starts should
         # reflect those, not an assumed 24h.
         yday_cap = datetime(2026, 5, 12, 9, 30, tzinfo=_ET)
-        mon_cap = datetime(2026, 5, 11, 9, 15, tzinfo=_ET)
+        sun_cap = datetime(2026, 5, 10, 9, 15, tzinfo=_ET)
 
         def fake_load(date_key, steam_id):
             return {
                 "2026-05-12": {"games": {"730": 1100, "570": 580}, "captured_at": yday_cap.isoformat()},
-                "2026-05-11": {"games": {"730": 1000}, "captured_at": mon_cap.isoformat()},
+                "2026-05-10": {"games": {"730": 1000}, "captured_at": sun_cap.isoformat()},
             }.get(date_key)
 
         mock_load.side_effect = fake_load
@@ -76,7 +81,7 @@ class TestCollect:
         assert round(daily[0].total_hours, 2) == round(220 / 60, 2)
         assert round(daily[0].games["Counter-Strike 2"], 4) == round(200 / 60, 4)
 
-        # Weekly: CS2 +300, Dota +600 vs Monday = 900 min = 15 hrs.
+        # Weekly: CS2 +300, Dota +600 vs last Sunday = 900 min = 15 hrs.
         assert len(weekly) == 1
         assert weekly[0].person_id == "donkey"
         assert weekly[0].total_hours == 15.0
@@ -84,7 +89,7 @@ class TestCollect:
 
         # Window starts come from the reference snapshots' captured_at.
         assert daily_since == yday_cap
-        assert weekly_since == mon_cap
+        assert weekly_since == sun_cap
 
         # Today's snapshot is saved with this run's timestamp.
         assert mock_save.call_args[0][4] == WED.isoformat()
@@ -132,7 +137,7 @@ class TestCollect:
     @patch("src.sources.steam.load_snapshot")
     @patch("src.sources.steam.get_owned_games")
     @patch("src.sources.steam.time.sleep")
-    def test_monday_triggers_cleanup(
+    def test_sunday_triggers_cleanup(
         self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
     ):
         mock_games.return_value = ({"730": 1000}, {"730": "Counter-Strike 2"})
@@ -140,9 +145,88 @@ class TestCollect:
 
         roster = [{"player_id": "donkey", "name": "Donkey", "steam_ids": ["100"]}]
         with patch("src.sources.steam.PLAYERS", roster):
-            collect(MON)  # a Monday
+            collect(SUN)  # a Sunday
 
-        mock_delete.assert_called_once_with("2026-05-11", "100")  # one steam_id → one call
+        mock_delete.assert_called_once_with("2026-05-17", "100")  # one steam_id → one call
+
+    @patch("src.sources.steam.delete_snapshots_before")
+    @patch("src.sources.steam.save_snapshot")
+    @patch("src.sources.steam.load_snapshot")
+    @patch("src.sources.steam.get_owned_games")
+    @patch("src.sources.steam.time.sleep")
+    def test_monday_keeps_sunday_anchor(
+        self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
+    ):
+        # Monday must not delete Sunday's snapshot: it anchors the whole week.
+        mock_games.return_value = ({"730": 1000}, {"730": "Counter-Strike 2"})
+        mock_load.return_value = None
+
+        roster = [{"player_id": "donkey", "name": "Donkey", "steam_ids": ["100"]}]
+        with patch("src.sources.steam.PLAYERS", roster):
+            collect(MON)
+
+        mock_delete.assert_not_called()
+
+    @patch("src.sources.steam.delete_snapshots_before")
+    @patch("src.sources.steam.save_snapshot")
+    @patch("src.sources.steam.load_snapshot")
+    @patch("src.sources.steam.get_owned_games")
+    @patch("src.sources.steam.time.sleep")
+    def test_sunday_recap_covers_sunday_to_sunday(
+        self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
+    ):
+        # Regression for issue #16: playtime between last Sunday's run and Monday's
+        # run must be in the recap. Last Sunday CS2=1000; by Monday it was 1240 (+4h
+        # played Sunday -> Monday); today it's 1600. The recap is the full +600 min.
+        mock_games.return_value = ({"730": 1600}, {"730": "Counter-Strike 2"})
+        sun_cap = datetime(2026, 5, 10, 10, 0, tzinfo=_ET)
+
+        def fake_load(date_key, steam_id):
+            return {
+                "2026-05-10": {"games": {"730": 1000}, "captured_at": sun_cap.isoformat()},
+                "2026-05-11": {"games": {"730": 1240}, "captured_at": MON.isoformat()},
+                "2026-05-16": {"games": {"730": 1550}, "captured_at": "2026-05-16T10:00:00-04:00"},
+            }.get(date_key)
+
+        mock_load.side_effect = fake_load
+
+        roster = [{"player_id": "donkey", "name": "Donkey", "steam_ids": ["100"]}]
+        with patch("src.sources.steam.PLAYERS", roster):
+            _, weekly, _, weekly_since = collect(SUN)
+
+        assert len(weekly) == 1
+        assert weekly[0].total_hours == 10.0
+        assert weekly_since == sun_cap
+
+    @patch("src.sources.steam.delete_snapshots_before")
+    @patch("src.sources.steam.save_snapshot")
+    @patch("src.sources.steam.load_snapshot")
+    @patch("src.sources.steam.get_owned_games")
+    @patch("src.sources.steam.time.sleep")
+    def test_missing_sunday_anchor_falls_back_to_earliest_snapshot(
+        self, mock_sleep, mock_games, mock_load, mock_save, mock_delete
+    ):
+        # If last Sunday's snapshot is gone (failed run, or the old Monday cleanup
+        # deleted it), diff against the earliest snapshot that week and label the
+        # window from its captured_at, so the shorter week is reported honestly.
+        mock_games.return_value = ({"730": 1600}, {"730": "Counter-Strike 2"})
+
+        def fake_load(date_key, steam_id):
+            return {
+                "2026-05-11": {"games": {"730": 1240}, "captured_at": MON.isoformat()},
+                "2026-05-16": {"games": {"730": 1550}, "captured_at": "2026-05-16T10:00:00-04:00"},
+            }.get(date_key)
+
+        mock_load.side_effect = fake_load
+
+        roster = [{"player_id": "donkey", "name": "Donkey", "steam_ids": ["100"]}]
+        with patch("src.sources.steam.PLAYERS", roster):
+            _, weekly, _, weekly_since = collect(SUN)
+
+        assert weekly[0].total_hours == 6.0  # 1600 - 1240 = 360 min
+        assert weekly_since == MON
+        # Never diffs against today's own snapshot.
+        assert "2026-05-17" not in [c.args[0] for c in mock_load.call_args_list]
 
     @patch("src.sources.steam.delete_snapshots_before")
     @patch("src.sources.steam.save_snapshot")

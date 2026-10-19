@@ -45,7 +45,7 @@ def load_snapshot(date, steam_id):
 
 
 def delete_snapshots_before(cutoff_date, steam_id):
-    # Used for Monday cleanup — drops last week's snapshots once we've sent the
+    # Used for Sunday cleanup — drops last week's snapshots once we've computed the
     # weekly recap. Free-tier DynamoDB has generous limits but the leaderboard
     # only needs ~8 days of history, so we delete the rest to stay tidy.
     res = _table.query(

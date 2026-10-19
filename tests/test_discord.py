@@ -8,7 +8,7 @@ _ET = ZoneInfo("America/New_York")
 WED = datetime(2026, 5, 13, 10, 0, tzinfo=_ET)   # Wednesday 10 AM ET (this post)
 SUN = datetime(2026, 5, 17, 10, 0, tzinfo=_ET)   # Sunday 10 AM ET (this post)
 DAILY_START = WED - timedelta(days=1)            # previous post/snapshot time
-WEEKLY_START = datetime(2026, 5, 11, 10, 0, tzinfo=_ET)  # Monday snapshot time
+WEEKLY_START = datetime(2026, 5, 10, 10, 0, tzinfo=_ET)  # previous Sunday's snapshot time
 
 
 class TestSendLeaderboard:
